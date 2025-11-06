@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { WalletConnect } from "@/components/wallet-connect"
 import { DelegateDialog } from "@/components/delegate-dialog"
 import { CheckerLicensesScroll } from "@/components/checker-licenses-scroll"
+import type { CheckerLicenseAction } from "@/components/checker-license-card"
 import { Wallet, Award, CheckCircle, Users, Coins } from "lucide-react"
 import { useWallet } from "@solana/wallet-adapter-react"
 import { useBmbBalance } from "@/hooks/use-bmb-balance"
@@ -94,6 +95,18 @@ export default function CheckerConsole() {
   const { licenses, loading: licensesLoading } = useCheckerLicenses(publicKey || null)
   const { activateChecker, payoutCheckerRewards } = useDepinActions()
   const [claimingRewards, setClaimingRewards] = useState(false)
+  const [pendingActions, setPendingActions] = useState<Record<string, CheckerLicenseAction>>({})
+
+  const setPendingAction = (id: string, action: CheckerLicenseAction) => {
+    setPendingActions((prev) => ({ ...prev, [id]: action }))
+  }
+
+  const clearPendingAction = (id: string) => {
+    setPendingActions((prev) => {
+      const { [id]: _action, ...rest } = prev
+      return rest
+    })
+  }
 
   const licensesData = connected ? licenses : mockCheckerLicenses
   const totalRewardsEarned = useMemo(
@@ -112,13 +125,13 @@ export default function CheckerConsole() {
   const activityCalendarDays = useMemo<CheckerActivityDay[]>(() => {
     const total = licensesData.length
     const today = new Date()
-    today.setHours(0, 0, 0, 0)
+    today.setUTCHours(0, 0, 0, 0)
     if (total === 0) return []
 
     const days: CheckerActivityDay[] = []
     for (let offset = 0; offset < 30; offset += 1) {
       const day = new Date(today)
-      day.setDate(today.getDate() - offset)
+      day.setUTCDate(today.getUTCDate() - offset)
       const iso = day.toISOString()
 
       if (offset === 0) {
@@ -178,16 +191,20 @@ export default function CheckerConsole() {
   const handleUndelegate = async (licenseId: string) => {
     setSelectedLicense(licenseId)
     try {
+      setPendingAction(licenseId, "undelegate")
       const t = toast({ title: "Undelegating…", description: `License ${licenseId}` })
       await activateChecker(licenseId)
       t.update({ title: "Undelegated" })
     } catch (e: any) {
       toast({ title: "Undelegate failed", description: e?.message || String(e) })
+    } finally {
+      clearPendingAction(licenseId)
     }
   }
 
   const handleActivate = async (licenseId: string) => {
     try {
+      setPendingAction(licenseId, "activate")
       console.debug("[UI] Activate click", { licenseId })
       const t = toast({ title: "Activating…", description: `License ${licenseId}` })
       const sig = await activateChecker(licenseId)
@@ -195,22 +212,27 @@ export default function CheckerConsole() {
     } catch (e: any) {
       console.error("[UI] Activation failed", { message: e?.message, stack: e?.stack })
       toast({ title: "Activation failed", description: e?.message || String(e) })
+    } finally {
+      clearPendingAction(licenseId)
     }
   }
 
   const handleClaimAllRewards = async () => {
     if (pendingRewards <= 0 || claimingRewards) return
+    const list = licensesData.map((l) => l.id)
     try {
       setClaimingRewards(true)
-      const list = licensesData.map((l) => l.id)
       const t = toast({ title: "Claiming…", description: `${list.length} license(s)` })
       for (const id of list) {
+        setPendingAction(id, "claim")
         await payoutCheckerRewards(id)
+        clearPendingAction(id)
       }
       t.update({ title: "Claimed", description: `${list.length} processed` })
     } catch (e: any) {
       toast({ title: "Claim failed", description: e?.message || String(e) })
     } finally {
+      list.forEach((id) => clearPendingAction(id))
       setClaimingRewards(false)
     }
   }
@@ -383,6 +405,7 @@ export default function CheckerConsole() {
                   onActivate={handleActivate}
                   onDelegate={handleDelegate}
                   onUndelegate={handleUndelegate}
+                  pendingActions={pendingActions}
                 />
               </div>
             </section>
@@ -400,11 +423,15 @@ export default function CheckerConsole() {
         onSubmit={async (addr?: string) => {
           if (!selectedLicense) return
           try {
+            const actionType: CheckerLicenseAction = delegateMode === "delegate" ? "delegate" : "undelegate"
+            setPendingAction(selectedLicense, actionType)
             const t = toast({ title: "Delegating…", description: addr })
             await activateChecker(selectedLicense, addr)
             t.update({ title: "Delegated", description: addr })
           } catch (e: any) {
             toast({ title: "Delegate failed", description: e?.message || String(e) })
+          } finally {
+            clearPendingAction(selectedLicense)
           }
         }}
       />

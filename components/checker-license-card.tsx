@@ -3,6 +3,8 @@
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Spinner } from "@/components/ui/spinner"
+import { cn } from "@/lib/utils"
 import { CheckCircle2, XCircle, Clock, Copy } from "lucide-react"
 import Image from "next/image"
 import { toast } from "@/hooks/use-toast"
@@ -17,14 +19,17 @@ interface CheckerLicense {
   lastCheckTime: string
 }
 
+export type CheckerLicenseAction = "activate" | "delegate" | "undelegate" | "claim"
+
 interface CheckerLicenseCardProps {
   license: CheckerLicense
   onActivate: (id: string) => void
   onDelegate: (id: string) => void
   onUndelegate: (id: string) => void
+  pendingAction?: CheckerLicenseAction | null
 }
 
-export function CheckerLicenseCard({ license, onActivate, onDelegate, onUndelegate }: CheckerLicenseCardProps) {
+export function CheckerLicenseCard({ license, onActivate, onDelegate, onUndelegate, pendingAction }: CheckerLicenseCardProps) {
   const handleCopyPublicKey = () => {
     navigator.clipboard.writeText(license.publicKey)
     toast({ title: "Copied", description: "License address copied to clipboard." })
@@ -37,12 +42,31 @@ export function CheckerLicenseCard({ license, onActivate, onDelegate, onUndelega
     }
   }
 
+  const isActivating = pendingAction === "activate"
+  const isDelegating = pendingAction === "delegate"
+  const isUndelegating = pendingAction === "undelegate"
+  const isClaiming = pendingAction === "claim"
+  const isPending = Boolean(pendingAction)
+
+  const pendingLabelMap: Record<CheckerLicenseAction, string> = {
+    activate: "Activating…",
+    delegate: "Delegating…",
+    undelegate: "Undelegating…",
+    claim: "Claiming…",
+  }
+
   return (
-    <Card className="h-full overflow-hidden border border-border/60 bg-card/80 shadow-lg shadow-secondary/20 transition duration-300 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-primary/20">
+    <Card
+      className={cn(
+        "relative h-full overflow-hidden border border-border/60 bg-card/80 shadow-lg shadow-secondary/20",
+        isPending && "border-primary/40 ring-2 ring-primary/40 shadow-primary/30",
+      )}
+    >
+      {isPending && <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-primary/70 to-transparent" />}
       <CardHeader className="relative h-40 overflow-hidden p-0">
         <div className="absolute inset-0">
           <Image src={license.image || "/placeholder.svg"} alt={license.id} fill className="object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-background/60 via-background/20 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-background/50 via-background/20 to-transparent" />
         </div>
         <div className="absolute top-3 right-3">
           {license.isActivated ? (
@@ -104,25 +128,49 @@ export function CheckerLicenseCard({ license, onActivate, onDelegate, onUndelega
           <Button
             variant="outline"
             className="w-full rounded-lg border border-primary/40 bg-primary/15 text-sm font-semibold text-primary shadow shadow-primary/20 hover:bg-primary/25"
+            disabled={isActivating || isPending}
             onClick={() => onActivate(license.id)}
           >
-            Activate License
+            {isActivating ? (
+              <span className="flex items-center justify-center gap-2">
+                <Spinner className="h-3 w-3" />
+                {pendingLabelMap.activate}
+              </span>
+            ) : (
+              "Activate License"
+            )}
           </Button>
         ) : license.delegatedTo ? (
           <Button
             variant="outline"
             className="w-full rounded-lg border border-border/60 bg-card/70 text-sm font-semibold text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+            disabled={isUndelegating || isPending}
             onClick={() => onUndelegate(license.id)}
           >
-            Undelegate License
+            {isUndelegating ? (
+              <span className="flex items-center justify-center gap-2">
+                <Spinner className="h-3 w-3" />
+                {pendingLabelMap.undelegate}
+              </span>
+            ) : (
+              "Undelegate License"
+            )}
           </Button>
         ) : (
           <Button
             variant="outline"
             className="w-full rounded-lg border border-border/60 bg-card/70 text-sm font-semibold text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+            disabled={isDelegating || isPending}
             onClick={() => onDelegate(license.id)}
           >
-            Delegate License
+            {isDelegating ? (
+              <span className="flex items-center justify-center gap-2">
+                <Spinner className="h-3 w-3" />
+                {pendingLabelMap.delegate}
+              </span>
+            ) : (
+              "Delegate License"
+            )}
           </Button>
         )}
       </CardFooter>

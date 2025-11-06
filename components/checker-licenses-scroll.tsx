@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { CheckerLicenseCard } from "@/components/checker-license-card"
+import { CheckerLicenseCard, type CheckerLicenseAction } from "@/components/checker-license-card"
 import { Search, Filter, ShoppingCart, MoveHorizontal } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -24,9 +24,10 @@ interface CheckerLicensesScrollProps {
   onActivate: (id: string) => void
   onDelegate: (id: string) => void
   onUndelegate: (id: string) => void
+  pendingActions?: Record<string, CheckerLicenseAction>
 }
 
-export function CheckerLicensesScroll({ licenses, onActivate, onDelegate, onUndelegate }: CheckerLicensesScrollProps) {
+export function CheckerLicensesScroll({ licenses, onActivate, onDelegate, onUndelegate, pendingActions }: CheckerLicensesScrollProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [filterDelegated, setFilterDelegated] = useState(false)
   const [filterActivated, setFilterActivated] = useState(false)
@@ -100,6 +101,7 @@ export function CheckerLicensesScroll({ licenses, onActivate, onDelegate, onUnde
                   onActivate={onActivate}
                   onDelegate={onDelegate}
                   onUndelegate={onUndelegate}
+                  pendingAction={pendingActions?.[license.id]}
                 />
               </div>
             ))}

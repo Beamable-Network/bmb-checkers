@@ -28,6 +28,7 @@ const fullFormatter = new Intl.DateTimeFormat(undefined, {
   weekday: "long",
   month: "long",
   day: "numeric",
+  timeZone: "UTC",
 })
 
 const statusMeta: Record<
@@ -72,6 +73,7 @@ const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 const monthDayFormatter = new Intl.DateTimeFormat(undefined, {
   month: "short",
   day: "numeric",
+  timeZone: "UTC",
 })
 
 export function CheckerActivityCalendar({
@@ -108,12 +110,27 @@ export function CheckerActivityCalendar({
 
   const pendingDay = sortedDays.find((day) => day.status === "pending")
 
-  const currentDayProgress = useMemo(() => {
-    if (!pendingDay) return null
+  const computeUtcWindowProgress = () => {
     const now = new Date()
-    const minutes = now.getHours() * 60 + now.getMinutes()
-    const pct = Math.min(100, Math.max(0, (minutes / 1440) * 100))
-    return { value: pct, minutesRemaining: 1440 - minutes }
+    const startUtcMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+    const msInDay = 86_400_000
+    const elapsed = now.getTime() - startUtcMs
+    const clamped = Math.min(Math.max(elapsed, 0), msInDay)
+    return {
+      value: (clamped / msInDay) * 100,
+      remainingMs: Math.max(msInDay - clamped, 0),
+    }
+  }
+
+  const [currentDayProgress, setCurrentDayProgress] = useState(computeUtcWindowProgress)
+
+  useEffect(() => {
+    if (!pendingDay) return
+    setCurrentDayProgress(computeUtcWindowProgress())
+    const interval = setInterval(() => {
+      setCurrentDayProgress(computeUtcWindowProgress())
+    }, 60_000)
+    return () => clearInterval(interval)
   }, [pendingDay])
 
   const firstDate = sortedDays[0] ? new Date(sortedDays[0].date) : null
@@ -128,9 +145,9 @@ export function CheckerActivityCalendar({
     gridItems.push(null)
   }
 
-  const minutesRemaining = currentDayProgress?.minutesRemaining ?? 0
-  const hoursRemaining = Math.max(0, Math.floor(minutesRemaining / 60))
-  const minsRemaining = Math.max(0, minutesRemaining % 60)
+  const remainingMs = currentDayProgress.remainingMs
+  const hoursRemaining = Math.max(0, Math.floor(remainingMs / (1000 * 60 * 60)))
+  const minsRemaining = Math.max(0, Math.floor((remainingMs / (1000 * 60)) % 60))
 
   const legendItems = [
     { status: "maxed" as CheckerActivityStatus },
@@ -206,7 +223,16 @@ export function CheckerActivityCalendar({
           <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
             <div className="flex items-center gap-2 text-primary">
               <span className="h-2 w-2 rounded-full bg-primary/70" />
-              <span>Today&apos;s window is in progress</span>
+              <span>
+                UTC Window —
+                {" "}
+                {new Date(pendingDay.date).toLocaleDateString(undefined, {
+                  weekday: "long",
+                  month: "long",
+                  day: "numeric",
+                  timeZone: "UTC",
+                })}
+              </span>
             </div>
             <span className="text-xs uppercase tracking-[0.2em] text-primary/80">
               Results available tomorrow
@@ -215,9 +241,9 @@ export function CheckerActivityCalendar({
           <div className="mt-3 space-y-2 text-xs text-primary/80">
             <Progress value={currentDayProgress.value} className="h-2 bg-primary/20 [&>div]:bg-primary" />
             <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em]">
-              <span>{minutesRemaining > 0 ? "Window closing in" : "Window closed"}</span>
+              <span>{remainingMs > 0 ? "Window closing in" : "Window closed"}</span>
               <span>
-                {minutesRemaining > 0
+                {remainingMs > 0
                   ? `${hoursRemaining}h ${minsRemaining.toString().padStart(2, "0")}m remaining`
                   : "Awaiting worker submissions"}
               </span>
@@ -244,6 +270,7 @@ export function CheckerActivityCalendar({
 
               const date = new Date(item.date)
               const isSelected = item.date === selectedDate
+              const isUtcToday = date.toISOString().slice(0, 10) === new Date().toISOString().slice(0, 10)
               const status = statusMeta[item.status]
               const licensesTotal = item.licensesTotal || 0
               const checkersRunningPct =
@@ -264,6 +291,7 @@ export function CheckerActivityCalendar({
                     className={cn(
                       "flex h-28 flex-col justify-between rounded-xl border px-4 py-3 text-sm opacity-70",
                       status.container,
+                      isUtcToday && "border-primary/50",
                     )}
                   >
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -294,6 +322,7 @@ export function CheckerActivityCalendar({
                     "flex h-28 flex-col gap-2 rounded-xl border px-4 py-3 text-left text-sm outline-none",
                     status.container,
                     isSelected && "ring-2 ring-primary/50 border-primary/60 shadow-lg shadow-primary/20",
+                    !isSelected && isUtcToday && "border-primary/50",
                   )}
                   >
                     <div className="flex items-center justify-between text-xs">

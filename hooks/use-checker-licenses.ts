@@ -64,28 +64,41 @@ export function useCheckerLicenses(owner: PublicKey | null | undefined) {
     })
     // Enhance with on-chain metadata (delegation + activation)
     try {
-      const enhanced = await Promise.all(
-        mapped.map(async (m) => {
-          try {
-            const pda = await CheckerMetadataAccount.findCheckerMetadataPDA(address(m.id), address(owner.toBase58()))
-            const pdaAddress = String(pda[0])
-            const info = await connection.getAccountInfo(new PublicKey(pdaAddress))
-            if (!info?.data) return m
-            const meta = CheckerMetadataAccount.deserializeFrom(new Uint8Array(info.data))
-            const delegatedToStr = String(meta.delegatedTo)
-            const ownerStr = owner.toBase58()
-            const isActive = !isSome(meta.suspendedAt)
-            const isDelegated = delegatedToStr && delegatedToStr !== ownerStr
-            return {
-              ...m,
-              isActivated: isActive,
-              delegatedTo: isDelegated ? delegatedToStr : null,
-            }
-          } catch {
-            return m
-          }
+      const ownerBase58 = owner.toBase58()
+      const metadataEntries = await Promise.all(
+        mapped.map(async (license) => {
+          const [pda] = await CheckerMetadataAccount.findCheckerMetadataPDA(address(license.id), address(ownerBase58))
+          return { license, pda: new PublicKey(String(pda)) }
         }),
       )
+
+      const chunkSize = 50
+      const accounts: (import("@solana/web3.js").AccountInfo<Buffer> | null)[] = []
+      for (let i = 0; i < metadataEntries.length; i += chunkSize) {
+        const slice = metadataEntries.slice(i, i + chunkSize)
+        const res = await connection.getMultipleAccountsInfo(slice.map((entry) => entry.pda))
+        accounts.push(...res)
+      }
+
+      const enhanced = metadataEntries.map(({ license }, idx) => {
+        const accountInfo = accounts[idx]
+        if (!accountInfo?.data) return license
+        try {
+          const meta = CheckerMetadataAccount.deserializeFrom(new Uint8Array(accountInfo.data))
+          const delegatedToStr = String(meta.delegatedTo)
+          const ownerStr = ownerBase58
+          const isActive = !isSome(meta.suspendedAt)
+          const isDelegated = delegatedToStr && delegatedToStr !== ownerStr
+          return {
+            ...license,
+            isActivated: isActive,
+            delegatedTo: isDelegated ? delegatedToStr : null,
+          }
+        } catch {
+          return license
+        }
+      })
+
       return enhanced
     } catch {
       return mapped
