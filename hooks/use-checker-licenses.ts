@@ -6,7 +6,7 @@ import { searchCheckerAssets } from "@/lib/helius"
 import { getCheckerMerkleTrees } from "@/lib/depin"
 import { useNetwork } from "@/hooks/use-network"
 import { useConnection } from "@solana/wallet-adapter-react"
-import { CheckerMetadataAccount } from "@beamable-network/depin"
+import { CheckerMetadataAccount, GlobalRewardsAccount, baseUnitsToBmb } from "@beamable-network/depin"
 import { address, isSome } from "gill"
 import { useQuery } from "@tanstack/react-query"
 
@@ -19,6 +19,8 @@ export type CheckerLicense = {
   isActivated: boolean
   totalRewards: number
   lastCheckTime: string
+  checkerIndex: number | null
+  totalRewardsLamports: bigint
 }
 
 function extractImage(item: any): string {
@@ -28,6 +30,35 @@ function extractImage(item: any): string {
   const imageFromLinks = links?.image
   const imageFromFiles = files.find((f) => (f?.mime || "").startsWith("image"))?.uri
   return imageFromLinks || imageFromFiles || content?.json_uri || "/placeholder.svg"
+}
+
+function extractCheckerIndex(item: any): number | null {
+  const compression = item?.compression ?? {}
+  const raw =
+    compression.leaf_id ??
+    compression.leafId ??
+    compression.leaf_index ??
+    compression.leafIndex ??
+    compression.seq ??
+    compression.sequence
+  if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) return raw
+  if (typeof raw === "bigint") {
+    const num = Number(raw)
+    return Number.isFinite(num) && num >= 0 ? num : null
+  }
+  if (typeof raw === "string") {
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+  }
+  return null
+}
+
+const LAMPORTS_PER_BMB = 1_000_000_000n
+
+function toLamports(amount: number): bigint {
+  if (!Number.isFinite(amount)) return 0n
+  const scaled = Math.round(amount * Number(LAMPORTS_PER_BMB))
+  return BigInt(scaled)
 }
 
 export function useCheckerLicenses(owner: PublicKey | null | undefined) {
@@ -49,8 +80,10 @@ export function useCheckerLicenses(owner: PublicKey | null | undefined) {
       const findAttr = (k: string) => attrs.find((a) => a.trait_type?.toLowerCase() === k)?.value
       const delegatedTo = (findAttr("delegate") as string) || null
       const activated = String(findAttr("activated") ?? "false").toLowerCase() === "true"
-      const rewards = Number(findAttr("rewards") ?? 0)
+      const rawRewards = Number(findAttr("rewards") ?? 0)
       const lastCheck = (findAttr("lastCheck") as string) || "-"
+      const checkerIndex = extractCheckerIndex(it)
+      const rewardsLamports = toLamports(rawRewards)
       return {
         id: it.id,
         name: it?.content?.metadata?.name || it.id,
@@ -58,8 +91,10 @@ export function useCheckerLicenses(owner: PublicKey | null | undefined) {
         image: extractImage(it),
         delegatedTo,
         isActivated: activated,
-        totalRewards: rewards,
+        totalRewards: baseUnitsToBmb(rewardsLamports),
         lastCheckTime: lastCheck,
+        checkerIndex,
+        totalRewardsLamports: rewardsLamports,
       }
     })
     // Enhance with on-chain metadata (delegation + activation)
@@ -105,10 +140,38 @@ export function useCheckerLicenses(owner: PublicKey | null | undefined) {
     }
   }, [owner, cluster, endpoints.heliusRpc, connection])
 
+  const fetchLicensesWithRewards = useCallback(async () => {
+    const licenses = await fetchLicenses()
+
+    if (!owner) return licenses
+
+    try {
+      const [globalRewardsPda] = await GlobalRewardsAccount.findGlobalRewardsPDA()
+      const globalRewardsPk = new PublicKey(String(globalRewardsPda))
+      const accountInfo = await connection.getAccountInfo(globalRewardsPk, { commitment: connection.commitment || "confirmed" })
+      if (!accountInfo?.data) return licenses
+
+      const rewardsAccount = GlobalRewardsAccount.deserializeFrom(accountInfo.data)
+      const rewardsArray = rewardsAccount.checkers
+
+      return licenses.map((license) => {
+        if (license.checkerIndex === null) return license
+        const idx = license.checkerIndex
+        if (idx < 0 || idx >= rewardsArray.length) return license
+        const raw = rewardsArray[idx] ?? 0n
+        const converted = baseUnitsToBmb(raw)
+        return { ...license, totalRewards: converted, totalRewardsLamports: raw }
+      })
+    } catch (err) {
+      console.warn("[useCheckerLicenses] Failed to fetch global rewards", err)
+      return licenses
+    }
+  }, [fetchLicenses, owner, connection])
+
   const ownerKey = owner?.toBase58() || ""
   const query = useQuery({
     queryKey: ["checkerLicenses", cluster, ownerKey],
-    queryFn: fetchLicenses,
+    queryFn: fetchLicensesWithRewards,
     enabled: !!ownerKey,
   })
 

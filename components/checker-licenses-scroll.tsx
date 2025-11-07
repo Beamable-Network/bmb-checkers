@@ -24,10 +24,18 @@ interface CheckerLicensesScrollProps {
   onActivate: (id: string) => void
   onDelegate: (id: string) => void
   onUndelegate: (id: string) => void
+  onClaim?: (id: string) => void
   pendingActions?: Record<string, CheckerLicenseAction>
 }
 
-export function CheckerLicensesScroll({ licenses, onActivate, onDelegate, onUndelegate, pendingActions }: CheckerLicensesScrollProps) {
+export function CheckerLicensesScroll({
+  licenses,
+  onActivate,
+  onDelegate,
+  onUndelegate,
+  onClaim,
+  pendingActions,
+}: CheckerLicensesScrollProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [filterDelegated, setFilterDelegated] = useState(false)
   const [filterActivated, setFilterActivated] = useState(false)
@@ -101,6 +109,7 @@ export function CheckerLicensesScroll({ licenses, onActivate, onDelegate, onUnde
                   onActivate={onActivate}
                   onDelegate={onDelegate}
                   onUndelegate={onUndelegate}
+                  onClaim={onClaim}
                   pendingAction={pendingActions?.[license.id]}
                 />
               </div>

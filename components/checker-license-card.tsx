@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
-import { CheckCircle2, XCircle, Clock, Copy } from "lucide-react"
+import { CheckCircle2, XCircle, Coins, Copy } from "lucide-react"
 import Image from "next/image"
 import { toast } from "@/hooks/use-toast"
 
@@ -26,10 +26,18 @@ interface CheckerLicenseCardProps {
   onActivate: (id: string) => void
   onDelegate: (id: string) => void
   onUndelegate: (id: string) => void
+  onClaim?: (id: string) => void
   pendingAction?: CheckerLicenseAction | null
 }
 
-export function CheckerLicenseCard({ license, onActivate, onDelegate, onUndelegate, pendingAction }: CheckerLicenseCardProps) {
+export function CheckerLicenseCard({
+  license,
+  onActivate,
+  onDelegate,
+  onUndelegate,
+  onClaim,
+  pendingAction,
+}: CheckerLicenseCardProps) {
   const handleCopyPublicKey = () => {
     navigator.clipboard.writeText(license.publicKey)
     toast({ title: "Copied", description: "License address copied to clipboard." })
@@ -47,6 +55,7 @@ export function CheckerLicenseCard({ license, onActivate, onDelegate, onUndelega
   const isUndelegating = pendingAction === "undelegate"
   const isClaiming = pendingAction === "claim"
   const isPending = Boolean(pendingAction)
+  const claimableBmb = Number(license.totalRewards ?? 0)
 
   const pendingLabelMap: Record<CheckerLicenseAction, string> = {
     activate: "Activating…",
@@ -114,13 +123,19 @@ export function CheckerLicenseCard({ license, onActivate, onDelegate, onUndelega
           </div>
         )}
 
-        <div className="rounded-lg border border-secondary/50 bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5 uppercase tracking-[0.2em]">
-            <Clock className="h-3.5 w-3.5 text-primary/70" />
-            Last check
-          </span>
-          <span className="font-medium text-foreground">{license.lastCheckTime}</span>
-        </div>
+        {license.isActivated && (
+          <div className="space-y-1.5 rounded-lg border border-secondary/50 bg-secondary/40 px-3 py-3">
+            <span className="flex items-center gap-1.5 text-xs uppercase tracking-[0.2em] text-muted-foreground">
+              <Coins className="h-3.5 w-3.5 text-primary/70" />
+              Claimable rewards
+            </span>
+            <span className="text-sm font-semibold text-primary">
+              {claimableBmb > 0
+                ? `${claimableBmb.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} $BMB`
+                : "0 $BMB"}
+            </span>
+          </div>
+        )}
       </CardContent>
 
       <CardFooter className="px-5 pb-5 pt-0">
@@ -140,38 +155,57 @@ export function CheckerLicenseCard({ license, onActivate, onDelegate, onUndelega
               "Activate License"
             )}
           </Button>
-        ) : license.delegatedTo ? (
-          <Button
-            variant="outline"
-            className="w-full rounded-lg border border-border/60 bg-card/70 text-sm font-semibold text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
-            disabled={isUndelegating || isPending}
-            onClick={() => onUndelegate(license.id)}
-          >
-            {isUndelegating ? (
-              <span className="flex items-center justify-center gap-2">
-                <Spinner className="h-3 w-3" />
-                {pendingLabelMap.undelegate}
-              </span>
-            ) : (
-              "Undelegate License"
-            )}
-          </Button>
         ) : (
-          <Button
-            variant="outline"
-            className="w-full rounded-lg border border-border/60 bg-card/70 text-sm font-semibold text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
-            disabled={isDelegating || isPending}
-            onClick={() => onDelegate(license.id)}
-          >
-            {isDelegating ? (
-              <span className="flex items-center justify-center gap-2">
-                <Spinner className="h-3 w-3" />
-                {pendingLabelMap.delegate}
-              </span>
+          <div className="flex w-full flex-col gap-2">
+            <Button
+              variant="outline"
+              className="w-full rounded-lg border border-border/60 bg-card/70 text-sm font-semibold text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+              disabled={!onClaim || claimableBmb <= 0 || isClaiming}
+              onClick={() => onClaim?.(license.id)}
+            >
+              {isClaiming ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Spinner className="h-3 w-3" />
+                  {pendingLabelMap.claim}
+                </span>
+              ) : (
+                "Claim Rewards"
+              )}
+            </Button>
+            {license.delegatedTo ? (
+              <Button
+                variant="outline"
+                className="w-full rounded-lg border border-border/60 bg-card/70 text-sm font-semibold text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                disabled={isUndelegating || isPending}
+                onClick={() => onUndelegate(license.id)}
+              >
+                {isUndelegating ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Spinner className="h-3 w-3" />
+                    {pendingLabelMap.undelegate}
+                  </span>
+                ) : (
+                  "Undelegate"
+                )}
+              </Button>
             ) : (
-              "Delegate License"
+              <Button
+                variant="outline"
+                className="w-full rounded-lg border border-border/60 bg-card/70 text-sm font-semibold text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                disabled={isDelegating || isPending}
+                onClick={() => onDelegate(license.id)}
+              >
+                {isDelegating ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Spinner className="h-3 w-3" />
+                    {pendingLabelMap.delegate}
+                  </span>
+                ) : (
+                  "Delegate License"
+                )}
+              </Button>
             )}
-          </Button>
+          </div>
         )}
       </CardFooter>
     </Card>
