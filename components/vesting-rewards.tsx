@@ -12,7 +12,7 @@ import { toast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { AlertCircle, ArrowDownToLine, RefreshCw, Hourglass, Copy } from "lucide-react"
 
-type MaturingRewardsProps = {
+type VestingRewardsProps = {
   positions: LockedRewardPosition[]
   loading: boolean
   refetching: boolean
@@ -62,9 +62,9 @@ function formatPercent(value: number) {
 }
 
 function formatDays(days: number) {
-  if (days <= 0) return "Ready now"
-  if (days === 1) return "Unlocks in 1 day"
-  return `Unlocks in ${days.toLocaleString()} days`
+  if (days <= 0) return "Fully vested"
+  const label = days === 1 ? "1 day" : `${days.toLocaleString()} days`
+  return `Unlocks over ${label}`
 }
 
 function formatRange(startMs: number, endMs: number) {
@@ -73,7 +73,7 @@ function formatRange(startMs: number, endMs: number) {
   return `${start} → ${end}`
 }
 
-export function MaturingRewards({
+export function VestingRewards({
   positions,
   loading,
   refetching,
@@ -83,10 +83,13 @@ export function MaturingRewards({
   onWithdraw,
   onWithdrawSelection,
   onRefresh,
-}: MaturingRewardsProps) {
+}: VestingRewardsProps) {
   const [showWithdrawSelected, setShowWithdrawSelected] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({})
-  const [showMatureOnly, setShowMatureOnly] = useState(false)
+  const [showVestedOnly, setShowVestedOnly] = useState(false)
+  const [singleConfirm, setSingleConfirm] = useState<LockedRewardPosition | null>(null)
+  const [singleConfirmAck, setSingleConfirmAck] = useState(false)
+  const [selectionAck, setSelectionAck] = useState(false)
 
   useEffect(() => {
     setSelectedIds((prev) => {
@@ -99,7 +102,7 @@ export function MaturingRewards({
   }, [positions])
 
   useEffect(() => {
-    if (!showMatureOnly) return
+    if (!showVestedOnly) return
     setSelectedIds((prev) => {
       const next = { ...prev }
       positions.forEach((pos) => {
@@ -107,12 +110,12 @@ export function MaturingRewards({
       })
       return next
     })
-  }, [showMatureOnly, positions])
+  }, [showVestedOnly, positions])
 
   const filteredPositions = useMemo(() => {
-    if (!showMatureOnly) return positions
+    if (!showVestedOnly) return positions
     return positions.filter((pos) => pos.penaltyPct <= 0.000001)
-  }, [positions, showMatureOnly])
+  }, [positions, showVestedOnly])
 
   const selectedPositions = useMemo(
     () => positions.filter((pos) => selectedIds[pos.address]),
@@ -137,12 +140,31 @@ export function MaturingRewards({
     withdrawingSelection || selectedPositions.length === 0 || selectedTotals.available <= 0
   const withdrawSelectionLabel =
     selectedPositions.length > 0 ? `Withdraw Selected (${selectedPositions.length})` : "Withdraw Selected"
+  const selectedWithPenalty = useMemo(
+    () => selectedPositions.filter((pos) => pos.penaltyPct > 0.000001),
+    [selectedPositions],
+  )
+  const averageSelectionPenaltyPct = useMemo(() => {
+    if (!selectedPositions.length || selectedTotals.totalLocked <= 0) return 0
+    return Math.min(1, selectedTotals.penalty / selectedTotals.totalLocked)
+  }, [selectedPositions, selectedTotals.penalty, selectedTotals.totalLocked])
+  const needsPenaltyAck = (reward: LockedRewardPosition) => reward.penaltyPct > 0.000001
 
   const handleCopy = (address: string) => {
     navigator.clipboard.writeText(address).then(
       () => toast({ title: "Copied", description: "PDA address copied to clipboard." }),
       () => toast({ title: "Copy failed", description: "Unable to copy address.", variant: "destructive" }),
     )
+  }
+
+  const executeWithdraw = async (reward: LockedRewardPosition) => {
+    await Promise.resolve(onWithdraw(reward))
+    setSelectedIds((prev) => {
+      if (!prev[reward.address]) return prev
+      const next = { ...prev }
+      delete next[reward.address]
+      return next
+    })
   }
 
   const handleWithdrawSelected = async () => {
@@ -168,7 +190,7 @@ export function MaturingRewards({
   const renderEmptyState = () => (
     <div className="flex h-40 flex-col items-center justify-center rounded-2xl border border-border/60 bg-secondary/40 text-sm text-muted-foreground">
       <Hourglass className="mb-2 h-5 w-5 text-primary/70" />
-      {showMatureOnly ? "No fully mature rewards yet." : "No locked rewards right now."}
+      {showVestedOnly ? "No fully vested rewards yet." : "No vesting rewards right now."}
     </div>
   )
 
@@ -177,9 +199,9 @@ export function MaturingRewards({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Rewards</p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight">Maturing rewards</h2>
+          <h2 className="mt-1 text-2xl font-semibold tracking-tight">Vesting rewards</h2>
           <p className="mt-2 max-w-xl text-xs text-muted-foreground">
-            Checker rewards you can immediately withdraw. Matured balances can be taken now; waiting unlocks more over time.
+            Vesting rewards you can withdraw right away. Vested balances unlock gradually—waiting reduces penalties over time.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -195,19 +217,22 @@ export function MaturingRewards({
           </Button>
           <Button
             type="button"
-            variant={showMatureOnly ? "default" : "outline"}
-            onClick={() => setShowMatureOnly((prev) => !prev)}
+            variant={showVestedOnly ? "default" : "outline"}
+            onClick={() => setShowVestedOnly((prev) => !prev)}
             className={cn(
               "h-9 rounded-lg border border-border/60 bg-card/70 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary",
-              showMatureOnly && "border-primary/40 bg-primary/15 text-primary shadow shadow-primary/20",
+              showVestedOnly && "border-primary/40 bg-primary/15 text-primary shadow shadow-primary/20",
             )}
           >
-            Fully Mature
+            Fully Vested
           </Button>
           <Button
             type="button"
             disabled={withdrawSelectionDisabled}
-            onClick={() => setShowWithdrawSelected(true)}
+            onClick={() => {
+              setSelectionAck(false)
+              setShowWithdrawSelected(true)
+            }}
             className="h-9 rounded-lg border border-primary/40 bg-primary/15 px-3 text-xs font-semibold text-primary shadow shadow-primary/20 hover:bg-primary/25 disabled:cursor-not-allowed disabled:border-border disabled:bg-secondary/40 disabled:text-muted-foreground"
           >
             {withdrawingSelection ? <Spinner className="mr-2 h-3.5 w-3.5" /> : <ArrowDownToLine className="mr-2 h-3.5 w-3.5" />}
@@ -227,7 +252,7 @@ export function MaturingRewards({
         {loading && !positions.length ? (
           <div className="flex h-40 items-center justify-center rounded-2xl border border-border/60 bg-secondary/40 text-sm text-muted-foreground">
             <Spinner className="mr-2 h-4 w-4 text-primary" />
-            Loading locked rewards…
+            Loading vesting rewards…
           </div>
         ) : filteredPositions.length === 0 ? (
           renderEmptyState()
@@ -299,7 +324,7 @@ export function MaturingRewards({
                       </p>
                     </div>
                     <div className="rounded-lg border border-border/60 bg-secondary/40 p-3">
-                      <p className="text-xs uppercase tracking-[0.15em] text-muted-foreground">Available now</p>
+                      <p className="text-xs uppercase tracking-[0.15em] text-muted-foreground">Vested now</p>
                       <p className="mt-1 font-semibold text-primary">
                         {position.maturedAmount > 0 ? `${formatAmount(position.maturedAmount)} $BMB` : "0 $BMB"}
                       </p>
@@ -314,7 +339,7 @@ export function MaturingRewards({
                       </p>
                     </div>
                     <div className="rounded-lg border border-border/60 bg-secondary/40 p-3">
-                      <p className="text-xs uppercase tracking-[0.15em] text-muted-foreground">Unlock schedule</p>
+                      <p className="text-xs uppercase tracking-[0.15em] text-muted-foreground">Vesting schedule</p>
                       <p className="mt-1 font-semibold text-primary">
                         {position.periodDurationDays.toLocaleString()} day plan
                       </p>
@@ -344,13 +369,12 @@ export function MaturingRewards({
                       type="button"
                       disabled={withdrawDisabled}
                       onClick={async () => {
-                        await Promise.resolve(onWithdraw(position))
-                        setSelectedIds((prev) => {
-                          if (!prev[position.address]) return prev
-                          const next = { ...prev }
-                          delete next[position.address]
-                          return next
-                        })
+                        if (needsPenaltyAck(position)) {
+                          setSingleConfirm(position)
+                          setSingleConfirmAck(false)
+                          return
+                        }
+                        await executeWithdraw(position)
                       }}
                       className={cn(
                         "h-9 rounded-lg border border-primary/40 bg-primary/15 px-3 text-xs font-semibold text-primary shadow shadow-primary/20 hover:bg-primary/25 disabled:cursor-not-allowed disabled:border-border disabled:bg-secondary/40 disabled:text-muted-foreground",
@@ -372,12 +396,95 @@ export function MaturingRewards({
         )}
       </div>
 
-      <Dialog open={showWithdrawSelected} onOpenChange={setShowWithdrawSelected}>
+      <Dialog
+        open={!!singleConfirm}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSingleConfirm(null)
+            setSingleConfirmAck(false)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[420px] rounded-2xl border border-border/60 bg-card/90 shadow-2xl shadow-secondary/35">
+          {singleConfirm && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-xl font-semibold tracking-tight">Early withdrawal has a penalty</DialogTitle>
+                <DialogDescription className="text-sm text-muted-foreground">
+                  Withdrawing now abandons the unvested amount for this lock period. Review the breakdown before continuing.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-3 rounded-xl border border-border/60 bg-secondary/40 p-4 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Lock period</span>
+                  <span className="font-mono text-xs text-primary">{singleConfirm.lockPeriod}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Penalty</span>
+                  <span className="font-semibold text-destructive">{formatPercent(singleConfirm.penaltyPct)}%</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">You receive now</span>
+                  <span className="font-semibold text-primary">{formatAmount(singleConfirm.maturedAmount)} $BMB</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">You abandon</span>
+                  <span className="font-semibold text-destructive">{formatAmount(singleConfirm.penaltyAmount)} $BMB</span>
+                </div>
+                <Separator className="bg-border/60" />
+                <label className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <Checkbox checked={singleConfirmAck} onCheckedChange={(checked) => setSingleConfirmAck(checked === true)} />
+                  <span className="leading-relaxed">
+                    I understand this withdrawal forfeits the unvested amount and I cannot recover it later.
+                  </span>
+                </label>
+              </div>
+
+              <DialogFooter className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setSingleConfirm(null)}
+                  className="h-9 rounded-lg border border-border/60 bg-card/70 text-sm font-medium text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={async () => {
+                    if (!singleConfirm) return
+                    await executeWithdraw(singleConfirm)
+                    setSingleConfirm(null)
+                  }}
+                  disabled={!singleConfirmAck || withdrawingIds[singleConfirm.address]}
+                  className="h-9 rounded-lg border border-primary/40 bg-primary/15 px-4 text-sm font-semibold text-primary shadow shadow-primary/20 hover:bg-primary/25 disabled:cursor-not-allowed disabled:border-border disabled:bg-secondary/40 disabled:text-muted-foreground"
+                >
+                  {withdrawingIds[singleConfirm.address] ? (
+                    <Spinner className="mr-2 h-3.5 w-3.5" />
+                  ) : (
+                    <ArrowDownToLine className="mr-2 h-3.5 w-3.5" />
+                  )}
+                  Withdraw now
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={showWithdrawSelected}
+        onOpenChange={(open) => {
+          setShowWithdrawSelected(open)
+          if (!open) setSelectionAck(false)
+        }}
+      >
         <DialogContent className="sm:max-w-[460px] rounded-2xl border border-border/60 bg-card/90 shadow-2xl shadow-secondary/35">
           <DialogHeader>
             <DialogTitle className="text-xl font-semibold tracking-tight">Withdraw selected rewards</DialogTitle>
             <DialogDescription className="text-sm text-muted-foreground">
-              Withdrawing now applies penalties to locks that have not fully matured. Confirm to proceed.
+              Withdrawing now applies penalties to locks that have not fully vested. Confirm to proceed.
             </DialogDescription>
           </DialogHeader>
 
@@ -399,8 +506,48 @@ export function MaturingRewards({
               <span className="font-semibold text-primary">{formatAmount(selectedTotals.penalty)} $BMB</span>
             </div>
             <Separator className="bg-border/60" />
+            {selectedWithPenalty.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Locks with penalties</p>
+                <div className="rounded-lg border border-border/60 bg-card/70 p-3 text-xs text-muted-foreground">
+                  <div className="grid grid-cols-3 gap-2 font-semibold text-primary">
+                    <span>Period</span>
+                    <span className="text-right">Receive</span>
+                    <span className="text-right">Abandon</span>
+                  </div>
+                  <div className="mt-2 space-y-1">
+                    {selectedWithPenalty.map((reward) => (
+                      <div key={reward.address} className="grid grid-cols-3 gap-2">
+                        <span className="font-mono text-[11px]">{reward.lockPeriod}</span>
+                        <span className="text-right">{formatAmount(reward.maturedAmount)} $BMB</span>
+                        <span className="text-right text-destructive">{formatAmount(reward.penaltyAmount)} $BMB</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            {selectedWithPenalty.length > 0 && (
+              <>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Average penalty</span>
+                  <span className="font-semibold text-destructive">{formatPercent(averageSelectionPenaltyPct)}%</span>
+                </div>
+                <label className="flex items-start gap-2 pt-1 text-xs text-muted-foreground">
+                  <Checkbox checked={selectionAck} onCheckedChange={(checked) => setSelectionAck(checked === true)} />
+                  <span className="leading-relaxed">
+                    I understand withdrawing now abandons the unvested amounts shown above and they cannot be reclaimed later.
+                  </span>
+                </label>
+              </>
+            )}
+            {selectedWithPenalty.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                All selected rewards are fully vested—no penalties will be applied.
+              </p>
+            ) : null}
             <p className="text-xs text-muted-foreground">
-              Rewards will continue to mature after withdrawal. Repeat withdrawals as balances unlock.
+              Rewards will continue to vest after withdrawal. Repeat withdrawals as balances unlock.
             </p>
           </div>
 
@@ -417,7 +564,7 @@ export function MaturingRewards({
             <Button
               type="button"
               onClick={handleWithdrawSelected}
-              disabled={withdrawSelectionDisabled}
+              disabled={withdrawSelectionDisabled || (selectedWithPenalty.length > 0 && !selectionAck)}
               className="h-9 rounded-lg border border-primary/40 bg-primary/15 px-4 text-sm font-semibold text-primary shadow shadow-primary/20 hover:bg-primary/25 disabled:cursor-not-allowed disabled:border-border disabled:bg-secondary/40 disabled:text-muted-foreground"
             >
               {withdrawingSelection ? <Spinner className="mr-2 h-3.5 w-3.5" /> : <ArrowDownToLine className="mr-2 h-3.5 w-3.5" />}

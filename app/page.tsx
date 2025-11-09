@@ -16,7 +16,7 @@ import { ENV } from "@/lib/env"
 import { NetworkToggle } from "@/components/network-toggle"
 import { useDepinActions } from "@/hooks/use-depin-actions"
 import { CheckerActivityCalendar, type CheckerActivityDay } from "@/components/checker-activity-calendar"
-import { MaturingRewards } from "@/components/maturing-rewards"
+import { VestingRewards } from "@/components/vesting-rewards"
 import { useLockedRewards, type LockedRewardPosition } from "@/hooks/use-locked-rewards"
 import { Checkbox } from "@/components/ui/checkbox"
 
@@ -36,6 +36,16 @@ function formatLamports(amount: bigint): string {
   if (fraction === 0n) return `${sign}${wholeStr}`
   const fractionStr = fraction.toString().padStart(9, "0").replace(/0+$/, "")
   return `${sign}${wholeStr}.${fractionStr}`
+}
+
+function formatBmbAmount(value: number): string {
+  if (!Number.isFinite(value)) return "0"
+  const abs = Math.abs(value)
+  const formatted = value.toLocaleString(undefined, {
+    minimumFractionDigits: abs >= 1 ? 2 : 0,
+    maximumFractionDigits: abs >= 1 ? 6 : 9,
+  })
+  return formatted.replace(/\.?0+$/, "")
 }
 
 const mockCheckerLicenses = [
@@ -172,14 +182,15 @@ export default function CheckerConsole() {
     return { lamports, units }
   }, [connected, licenses, licensesData])
   const claimableRewardsLamports = claimableRewards.lamports
-  const availableLockedLamports = useMemo(() => {
+  const claimableRewardsDisplay = formatLamports(claimableRewardsLamports)
+  const unlockedBmbLamports = useMemo(() => {
     if (!connected) return 0n
     return lockedRewards.reduce((sum, reward) => {
       const lamports = BigInt(Math.round(reward.maturedAmount * LAMPORTS_PER_BMB_NUMBER))
       return sum + lamports
     }, 0n)
   }, [connected, lockedRewards])
-  const availableLockedDisplay = formatLamports(availableLockedLamports)
+  const unlockedBmbDisplay = formatLamports(unlockedBmbLamports)
   const licensesOwned = licensesData.length
   const licensesDelegated = licensesData.filter((l) => l.delegatedTo !== null).length
   const licensesActivated = licensesData.filter((l) => l.isActivated).length
@@ -426,14 +437,20 @@ export default function CheckerConsole() {
         value: licensesActivated.toLocaleString(),
       },
       {
-        title: "Available BMB",
-        description: "Checker rewards you can immediately withdraw",
+        title: "Unlocked BMB",
+        description: "Vesting rewards ready to withdraw",
         icon: Award,
-        value: `${availableLockedDisplay} $BMB`,
+        value: `${unlockedBmbDisplay} $BMB`,
         accent: true,
       },
+      {
+        title: "Unclaimed BMB",
+        description: "Total checker rewards that can be claimed right now",
+        icon: Coins,
+        value: `${claimableRewardsDisplay} $BMB`,
+      },
     ],
-    [licensesOwned, licensesDelegated, licensesActivated, availableLockedDisplay],
+    [licensesOwned, licensesDelegated, licensesActivated, unlockedBmbDisplay, claimableRewardsDisplay],
   )
 
   return (
@@ -458,7 +475,7 @@ export default function CheckerConsole() {
               <div className="flex h-8 items-center gap-2 rounded-lg border border-border/60 bg-card/70 px-3 text-xs sm:text-sm">
                 <Coins className="h-3 w-3 text-primary" />
                 <span className="hidden text-muted-foreground sm:inline">BMB</span>
-                <span className="font-semibold text-primary">{walletBalance.toFixed(2)}</span>
+                <span className="font-semibold text-primary">{formatBmbAmount(walletBalance)}</span>
               </div>
             )}
 
@@ -511,7 +528,7 @@ export default function CheckerConsole() {
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 {metricCards.map(({ title, description, icon: Icon, value, accent }) => (
                   <Card
                     key={title}
@@ -534,7 +551,7 @@ export default function CheckerConsole() {
               </div>
             </section>
 
-            <MaturingRewards
+            <VestingRewards
               positions={lockedRewards}
               loading={lockedRewardsLoading}
               refetching={lockedRewardsRefetching}
@@ -571,7 +588,7 @@ export default function CheckerConsole() {
                         onCheckedChange={(checked) => setPendingRewardsOnly(checked === true)}
                       />
                       <label htmlFor="filter-pending" className="text-xs text-muted-foreground">
-                        Pending rewards
+                        Pending Rewards
                       </label>
                       <Button
                         size="sm"
