@@ -28,7 +28,11 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return
     if (raw === "devnet" || raw === "mainnet-beta") {
-      setCluster(raw)
+      if (raw === DEFAULT_CLUSTER) {
+        setCluster(raw)
+      } else {
+        setCluster(DEFAULT_CLUSTER)
+      }
       return
     }
     if (raw === "mainnet") {
