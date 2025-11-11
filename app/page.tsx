@@ -21,6 +21,7 @@ import { CheckerActivityCalendar, type CheckerActivityDay } from "@/components/c
 import { VestingRewards } from "@/components/vesting-rewards"
 import { useLockedRewards, type LockedRewardPosition } from "@/hooks/use-locked-rewards"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Progress } from "@/components/ui/progress"
 
 const LAMPORTS_PER_BMB = 1_000_000_000n
 const LAMPORTS_PER_BMB_NUMBER = Number(LAMPORTS_PER_BMB)
@@ -75,6 +76,13 @@ const XIcon = ({ className, ...props }: SocialIconProps) => (
     <path d="M18.244 3h2.963l-6.476 7.399L22 21h-5.807l-4.551-5.958L6.374 21H3.41l6.91-7.908L2 3h5.977l4.114 5.495L18.244 3zm-1.037 16.146h1.64L7.88 4.002H6.15l11.057 15.144z" />
   </svg>
 )
+
+type ClaimProgressState = {
+  total: number
+  completed: number
+  failed: number
+  currentId: string | null
+}
 
 const mockCheckerLicenses = [
   {
@@ -173,6 +181,7 @@ export default function CheckerConsole() {
   } = useLockedRewards(publicKey || null)
   const { activateChecker, payoutCheckerRewards, unlockLockedTokens, refreshLatestBlockhash } = useDepinActions()
   const [claimingRewards, setClaimingRewards] = useState(false)
+  const [claimProgress, setClaimProgress] = useState<ClaimProgressState | null>(null)
   const [pendingActions, setPendingActions] = useState<Record<string, CheckerLicenseAction>>({})
   const [lockedWithdrawState, setLockedWithdrawState] = useState<Record<string, boolean>>({})
   const [withdrawingLockedSelection, setWithdrawingLockedSelection] = useState(false)
@@ -281,6 +290,20 @@ export default function CheckerConsole() {
     [unlockedBmbDisplay, lockedBmbDisplay, claimableRewardsDisplay],
   )
 
+  const currentClaimLabel = useMemo(() => {
+    if (!claimProgress?.currentId) return null
+    const license = licensesData.find((item) => item.id === claimProgress.currentId)
+    return license?.name || `License ${claimProgress.currentId}`
+  }, [claimProgress, licensesData])
+
+  const claimProgressSummary = useMemo(() => {
+    if (!claimProgress) return null
+    const processed = claimProgress.completed + claimProgress.failed
+    const remaining = Math.max(claimProgress.total - processed, 0)
+    const value = claimProgress.total > 0 ? (processed / claimProgress.total) * 100 : 0
+    return { processed, remaining, value }
+  }, [claimProgress])
+
   const activityCalendarDays = useMemo<CheckerActivityDay[]>(() => {
     const total = licensesData.length
     const today = new Date()
@@ -380,42 +403,73 @@ export default function CheckerConsole() {
     if (!connected || claimableRewardsLamports <= 0n || claimingRewards) return
     const sourceLicenses = pendingRewardsOnly ? displayedLicenses : licensesData
     const list = sourceLicenses.filter((l) => (l.totalRewards ?? 0) > 0).map((l) => l.id)
-    if (list.length === 0) return
-    if (list.length === 0) return
+    if (list.length === 0) {
+      setClaimProgress(null)
+      return
+    }
     const chunkSize = 20
     const chunks: string[][] = []
     for (let i = 0; i < list.length; i += chunkSize) {
       chunks.push(list.slice(i, i + chunkSize))
     }
+
+    let progressToast: ReturnType<typeof toast> | undefined
+    let failureCount = 0
+    let lastErrorMessage: string | undefined
+
     try {
       setClaimingRewards(true)
-      const t = toast({ title: "Claiming…", description: `${list.length} license(s)` })
+      setClaimProgress({ total: list.length, completed: 0, failed: 0, currentId: null })
+      progressToast = toast({ title: "Claiming…", description: `0/${list.length} license(s)` })
       let processed = 0
+
       for (let idx = 0; idx < chunks.length; idx += 1) {
         const chunk = chunks[idx]
         for (const id of chunk) {
           setPendingAction(id, "claim")
         }
         for (const id of chunk) {
+          setClaimProgress((prev) => (prev ? { ...prev, currentId: id } : prev))
           try {
             await payoutCheckerRewards(id)
+            setClaimProgress((prev) => (prev ? { ...prev, completed: prev.completed + 1 } : prev))
+          } catch (error: any) {
+            failureCount += 1
+            lastErrorMessage = error?.message || String(error)
+            setClaimProgress((prev) => (prev ? { ...prev, failed: prev.failed + 1 } : prev))
           } finally {
             clearPendingAction(id)
             processed += 1
-            t.update({ title: "Claiming…", description: `${processed}/${list.length} license(s)` })
+            setClaimProgress((prev) => (prev ? { ...prev, currentId: null } : prev))
+            progressToast?.update({ title: "Claiming…", description: `${processed}/${list.length} license(s)` })
           }
         }
-        const hasMore = idx < chunks.length - 1
-        if (hasMore) {
+        const hasMoreChunks = idx < chunks.length - 1
+        if (hasMoreChunks) {
           await refreshLatestBlockhash()
         }
       }
-      t.update({ title: "Claimed", description: `${list.length} processed` })
+
+      if (failureCount > 0) {
+        const successCount = list.length - failureCount
+        progressToast?.update({
+          title: "Claimed with issues",
+          description: `${successCount} succeeded, ${failureCount} failed`,
+        })
+        toast({
+          title: "Claim completed with issues",
+          description: lastErrorMessage || `${failureCount} license(s) failed to claim.`,
+          variant: "destructive",
+        })
+      } else {
+        progressToast?.update({ title: "Claimed", description: `${list.length} processed` })
+      }
     } catch (e: any) {
+      progressToast?.update({ title: "Claim failed", description: e?.message || "Unable to claim rewards." })
       toast({ title: "Claim failed", description: e?.message || String(e) })
     } finally {
-      list.forEach((id) => clearPendingAction(id))
       setClaimingRewards(false)
+      setClaimProgress(null)
     }
   }
 
@@ -650,31 +704,58 @@ export default function CheckerConsole() {
                     Search and filter licensing assets. Activate operators or delegate management with a single click.
                   </p>
                 </div>
-                <div className="flex flex-col items-end gap-3 text-xs text-muted-foreground sm:flex-row sm:items-center">
+                <div className="flex w-full flex-col gap-3 text-xs text-muted-foreground sm:w-auto sm:flex-row sm:items-center sm:gap-6">
                   <div className="flex items-center gap-2">
                     <span>{licensesData.length.toLocaleString()} total</span>
                     <span className="hidden sm:inline">•</span>
                     <span>{licensesDelegated.toLocaleString()} delegated</span>
                   </div>
                   {connected && (
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="filter-pending"
-                        checked={pendingRewardsOnly}
-                        onCheckedChange={(checked) => setPendingRewardsOnly(checked === true)}
-                      />
-                      <label htmlFor="filter-pending" className="text-xs text-muted-foreground">
-                        Pending Rewards
-                      </label>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleClaimAllRewards}
-                        disabled={!connected || !hasDisplayedClaimable || claimingRewards}
-                        className="h-8 rounded-lg border-primary/40 bg-primary/15 px-3 text-xs font-semibold text-primary shadow shadow-primary/20 disabled:cursor-not-allowed disabled:border-border disabled:bg-secondary/40 disabled:text-muted-foreground"
-                      >
-                        {claimingRewards ? "Claiming…" : "Claim All"}
-                      </Button>
+                    <div className="flex w-full flex-col gap-2 sm:w-auto">
+                      <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3">
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="filter-pending"
+                            checked={pendingRewardsOnly}
+                            onCheckedChange={(checked) => setPendingRewardsOnly(checked === true)}
+                          />
+                          <label htmlFor="filter-pending" className="text-xs text-muted-foreground">
+                            Pending Rewards
+                          </label>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleClaimAllRewards}
+                          disabled={!connected || !hasDisplayedClaimable || claimingRewards}
+                          className="h-8 rounded-lg border-primary/40 bg-primary/15 px-3 text-xs font-semibold text-primary shadow shadow-primary/20 disabled:cursor-not-allowed disabled:border-border disabled:bg-secondary/40 disabled:text-muted-foreground"
+                        >
+                          {claimingRewards ? "Claiming…" : "Claim All"}
+                        </Button>
+                      </div>
+                      {claimingRewards && claimProgress && claimProgressSummary ? (
+                        <div className="w-full rounded-lg border border-primary/40 bg-primary/10 p-3 text-[11px] text-foreground shadow-sm shadow-primary/10 sm:min-w-[280px]">
+                          <div className="flex items-center justify-between text-xs font-semibold">
+                            <span>Claiming rewards</span>
+                            <span>
+                              {claimProgressSummary.processed}/{claimProgress.total}
+                            </span>
+                          </div>
+                          <Progress value={claimProgressSummary.value} className="mt-2 h-2" />
+                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-foreground/80">
+                            <span>Completed {claimProgress.completed}</span>
+                            <span className={claimProgress.failed > 0 ? "text-destructive" : undefined}>
+                              Failed {claimProgress.failed}
+                            </span>
+                            <span>Remaining {claimProgressSummary.remaining}</span>
+                          </div>
+                          {currentClaimLabel ? (
+                            <p className="mt-1 truncate text-[11px] text-foreground/70">
+                              Processing <span className="text-foreground">{currentClaimLabel}</span>
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   )}
                 </div>
