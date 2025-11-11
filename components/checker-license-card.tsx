@@ -4,6 +4,7 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { CheckCircle2, XCircle, Coins, Copy } from "lucide-react"
 import Image from "next/image"
@@ -13,6 +14,7 @@ interface CheckerLicense {
   id: string
   publicKey: string
   image: string
+  animationUrl?: string | null
   delegatedTo: string | null
   isActivated: boolean
   totalRewards: number
@@ -67,14 +69,28 @@ export function CheckerLicenseCard({
   return (
     <Card
       className={cn(
-        "relative h-full overflow-hidden border border-border/60 bg-card/80 shadow-lg shadow-secondary/20",
+        "relative h-[660px] overflow-hidden border border-border/60 bg-card/80 shadow-lg shadow-secondary/20",
         isPending && "border-primary/40 ring-2 ring-primary/40 shadow-primary/30",
       )}
     >
       {isPending && <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-primary/70 to-transparent" />}
-      <CardHeader className="relative h-40 overflow-hidden p-0">
+      <CardHeader className="relative h-64 shrink-0 overflow-hidden p-0">
         <div className="absolute inset-0">
-          <Image src={license.image || "/placeholder.svg"} alt={license.id} fill className="object-cover" />
+          {license.animationUrl ? (
+            <video
+              key={license.animationUrl}
+              src={license.animationUrl}
+              poster={license.image || "/placeholder.svg"}
+              className="h-full w-full object-cover"
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="metadata"
+            />
+          ) : (
+            <Image src={license.image || "/placeholder.svg"} alt={license.id} fill className="object-cover" />
+          )}
           <div className="absolute inset-0 bg-gradient-to-t from-background/50 via-background/20 to-transparent" />
         </div>
         <div className="absolute top-3 right-3">
@@ -92,53 +108,69 @@ export function CheckerLicenseCard({
         </div>
       </CardHeader>
 
-      <CardContent className="flex flex-1 flex-col gap-4 p-5">
-        <div className="space-y-2 rounded-lg border border-border/50 bg-secondary/50 p-3">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span className="uppercase tracking-[0.18em]">License</span>
-            <button
-              className="flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-card/60 text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
-              title="Copy license address"
-              onClick={handleCopyPublicKey}
-            >
-              <Copy className="h-3 w-3" />
-            </button>
+      <CardContent className="flex flex-1 flex-col justify-between gap-3 overflow-hidden p-4">
+        <div className="rounded-lg border border-border/50 bg-secondary/50 p-3">
+          <div className="flex items-center justify-between gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+            <span>License</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="flex items-center gap-1 rounded-full border border-border/60 bg-card/60 px-2 py-1 font-mono text-[11px] text-foreground transition hover:bg-primary/10 hover:text-primary"
+                  title="Copy license address"
+                  onClick={handleCopyPublicKey}
+                >
+                  <span>{license.publicKey.slice(0, 6)}…{license.publicKey.slice(-4)}</span>
+                  <Copy className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{license.publicKey}</TooltipContent>
+            </Tooltip>
           </div>
-          <p className="font-mono text-sm">{license.publicKey.slice(0, 8)}…{license.publicKey.slice(-6)}</p>
         </div>
 
-        {license.delegatedTo && (
-          <div className="space-y-2 rounded-lg border border-border/50 bg-secondary/50 p-3">
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span className="uppercase tracking-[0.18em]">Delegated</span>
-              <button
-                className="flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-card/60 text-muted-foreground hover:bg-primary/10 hover:text-primary"
-                title="Copy delegate address"
-                onClick={handleCopyDelegatedTo}
-              >
-                <Copy className="h-3 w-3" />
-              </button>
-            </div>
-            <p className="font-mono text-sm text-primary">{license.delegatedTo.slice(0, 6)}…{license.delegatedTo.slice(-4)}</p>
+        <div className="rounded-lg border border-border/50 bg-secondary/50 p-3">
+          <div className="flex items-center justify-between gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+            <span>Delegated</span>
+            {license.delegatedTo ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="flex items-center gap-1 rounded-full border border-border/60 bg-card/60 px-2 py-1 font-mono text-[11px] text-primary transition hover:bg-primary/10 hover:text-primary-foreground"
+                    title="Copy delegate address"
+                    onClick={handleCopyDelegatedTo}
+                  >
+                    <span>{license.delegatedTo.slice(0, 6)}…{license.delegatedTo.slice(-4)}</span>
+                    <Copy className="h-3 w-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{license.delegatedTo}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <span className="rounded-full border border-border/60 bg-card/60 px-2 py-1 text-[11px] font-semibold text-muted-foreground">
+                Not delegated
+              </span>
+            )}
           </div>
-        )}
+        </div>
 
-        {license.isActivated && (
-          <div className="space-y-1.5 rounded-lg border border-secondary/50 bg-secondary/40 px-3 py-3">
-            <span className="flex items-center gap-1.5 text-xs uppercase tracking-[0.2em] text-muted-foreground">
-              <Coins className="h-3.5 w-3.5 text-primary/70" />
-              Claimable rewards
-            </span>
+        <div className="rounded-lg border border-secondary/50 bg-secondary/40 px-3 py-3">
+          <span className="flex items-center gap-1.5 text-xs uppercase tracking-[0.2em] text-muted-foreground">
+            <Coins className="h-3.5 w-3.5 text-primary/70" />
+            Claimable rewards
+          </span>
+          {license.isActivated ? (
             <span className="text-sm font-semibold text-primary">
               {claimableBmb > 0
                 ? `${claimableBmb.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} $BMB`
                 : "0 $BMB"}
             </span>
-          </div>
-        )}
+          ) : (
+            <span className="text-sm font-semibold text-muted-foreground/70">License has not been activated.</span>
+          )}
+        </div>
       </CardContent>
 
-      <CardFooter className="px-5 pb-5 pt-0">
+      <CardFooter className="shrink-0 px-5 pb-5 pt-0">
         {!license.isActivated ? (
           <Button
             variant="outline"

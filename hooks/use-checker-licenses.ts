@@ -15,6 +15,7 @@ export type CheckerLicense = {
   name: string
   publicKey: string
   image: string
+  animationUrl?: string | null
   delegatedTo: string | null
   isActivated: boolean
   totalRewards: number
@@ -23,13 +24,35 @@ export type CheckerLicense = {
   totalRewardsLamports: bigint
 }
 
-function extractImage(item: any): string {
+type MediaInfo = {
+  image: string
+  animationUrl?: string | null
+}
+
+function extractMedia(item: any): MediaInfo {
   const content = item?.content || {}
   const links = content?.links || {}
   const files: any[] = content?.files || []
-  const imageFromLinks = links?.image
-  const imageFromFiles = files.find((f) => (f?.mime || "").startsWith("image"))?.uri
-  return imageFromLinks || imageFromFiles || content?.json_uri || "/placeholder.svg"
+  const metadata = content?.metadata || {}
+
+  const firstImageFile = files.find((f) => typeof f?.uri === "string" && String(f?.mime || "").startsWith("image"))
+  const firstVideoFile = files.find((f) => typeof f?.uri === "string" && String(f?.mime || "").startsWith("video"))
+
+  const image =
+    (typeof links?.image === "string" && links.image) ||
+    (typeof metadata?.image === "string" && metadata.image) ||
+    (typeof firstImageFile?.uri === "string" && firstImageFile.uri) ||
+    (typeof content?.json_uri === "string" && content.json_uri) ||
+    "/placeholder.svg"
+
+  const animationUrl =
+    (typeof links?.animation_url === "string" && links.animation_url) ||
+    (typeof links?.animation === "string" && links.animation) ||
+    (typeof metadata?.animation_url === "string" && metadata.animation_url) ||
+    (typeof firstVideoFile?.uri === "string" && firstVideoFile.uri) ||
+    null
+
+  return { image, animationUrl }
 }
 
 function extractCheckerIndex(item: any): number | null {
@@ -76,6 +99,7 @@ export function useCheckerLicenses(owner: PublicKey | null | undefined) {
         })
       : []
     const mapped: CheckerLicense[] = filtered.map((it: any) => {
+      const media = extractMedia(it)
       const attrs: Array<{ trait_type?: string; value?: any }> = it?.content?.metadata?.attributes || []
       const findAttr = (k: string) => attrs.find((a) => a.trait_type?.toLowerCase() === k)?.value
       const delegatedTo = (findAttr("delegate") as string) || null
@@ -88,7 +112,8 @@ export function useCheckerLicenses(owner: PublicKey | null | undefined) {
         id: it.id,
         name: it?.content?.metadata?.name || it.id,
         publicKey: it.id,
-        image: extractImage(it),
+        image: media.image,
+        animationUrl: media.animationUrl,
         delegatedTo,
         isActivated: activated,
         totalRewards: baseUnitsToBmb(rewardsLamports),

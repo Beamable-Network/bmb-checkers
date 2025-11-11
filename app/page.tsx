@@ -16,6 +16,7 @@ import { useCheckerLicenses } from "@/hooks/use-checker-licenses"
 import { toast } from "@/hooks/use-toast"
 import { ENV } from "@/lib/env"
 import { NetworkToggle } from "@/components/network-toggle"
+import { UtcWindowProgress } from "@/components/utc-window-progress"
 import { useDepinActions } from "@/hooks/use-depin-actions"
 import { CheckerActivityCalendar, type CheckerActivityDay } from "@/components/checker-activity-calendar"
 import { VestingRewards } from "@/components/vesting-rewards"
@@ -25,6 +26,7 @@ import { Progress } from "@/components/ui/progress"
 
 const LAMPORTS_PER_BMB = 1_000_000_000n
 const LAMPORTS_PER_BMB_NUMBER = Number(LAMPORTS_PER_BMB)
+const NETWORK_TOGGLE_ENABLED = process.env.NEXT_PUBLIC_ENABLE_NETWORK_TOGGLE === "true"
 
 function lamportsFromNumber(amount: number): bigint {
   return BigInt(Math.round(amount * LAMPORTS_PER_BMB_NUMBER))
@@ -48,7 +50,8 @@ function formatBmbAmount(value: number): string {
     minimumFractionDigits: abs >= 1 ? 2 : 0,
     maximumFractionDigits: abs >= 1 ? 6 : 9,
   })
-  return formatted.replace(/\.?0+$/, "")
+  const trimmed = formatted.replace(/\.?0+$/, "")
+  return trimmed === "" ? "0" : trimmed
 }
 
 type SocialIconProps = SVGProps<SVGSVGElement>
@@ -364,6 +367,11 @@ export default function CheckerConsole() {
     return days.reverse()
   }, [licensesData.length])
 
+  const pendingActivityDay = useMemo(
+    () => activityCalendarDays.find((day) => day.status === "pending") ?? null,
+    [activityCalendarDays],
+  )
+
   const handleDelegate = (licenseId: string) => {
     setSelectedLicense(licenseId)
     setDelegateMode("delegate")
@@ -587,7 +595,7 @@ export default function CheckerConsole() {
             )}
 
             <div className="flex items-center gap-2">
-              <NetworkToggle />
+              {NETWORK_TOGGLE_ENABLED ? <NetworkToggle /> : null}
               <WalletConnect />
             </div>
           </div>
@@ -681,20 +689,6 @@ export default function CheckerConsole() {
               </div>
             </section>
 
-            <VestingRewards
-              positions={lockedRewards}
-              loading={lockedRewardsLoading}
-              refetching={lockedRewardsRefetching}
-              error={lockedRewardsError}
-              withdrawingIds={lockedWithdrawState}
-              withdrawingSelection={withdrawingLockedSelection}
-              onWithdraw={handleWithdrawLockedReward}
-              onWithdrawSelection={handleWithdrawSelection}
-              onRefresh={() => {
-                void refetchLockedRewards()
-              }}
-            />
-
             <section className="rounded-2xl border border-border/60 bg-card/80 p-6 shadow-xl shadow-secondary/20">
               <div className="flex flex-wrap items-end justify-between gap-4">
                 <div>
@@ -760,6 +754,11 @@ export default function CheckerConsole() {
                   )}
                 </div>
               </div>
+              {pendingActivityDay ? (
+                <div className="mt-4">
+                  <UtcWindowProgress pendingDay={pendingActivityDay} />
+                </div>
+              ) : null}
               <div className="mt-6">
                 <CheckerLicensesScroll
                   licenses={displayedLicenses}
@@ -772,7 +771,23 @@ export default function CheckerConsole() {
               </div>
             </section>
 
-            <CheckerActivityCalendar days={activityCalendarDays} totalLicenses={licensesOwned} />
+            <VestingRewards
+              positions={lockedRewards}
+              loading={lockedRewardsLoading}
+              refetching={lockedRewardsRefetching}
+              error={lockedRewardsError}
+              withdrawingIds={lockedWithdrawState}
+              withdrawingSelection={withdrawingLockedSelection}
+              onWithdraw={handleWithdrawLockedReward}
+              onWithdrawSelection={handleWithdrawSelection}
+              onRefresh={() => {
+                void refetchLockedRewards()
+              }}
+            />
+
+            {NETWORK_TOGGLE_ENABLED ? (
+              <CheckerActivityCalendar days={activityCalendarDays} totalLicenses={licensesOwned} />
+            ) : null}
           </div>
         )}
       </main>

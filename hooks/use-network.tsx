@@ -3,10 +3,12 @@
 import type React from "react"
 import { createContext, useContext, useEffect, useMemo, useState } from "react"
 
-export type Cluster = "devnet" | "mainnet"
+export type Cluster = "devnet" | "mainnet-beta"
 
 const DEVNET_RPC = "https://myriam-dhwfh7-fast-devnet.helius-rpc.com"
 const MAINNET_RPC = "https://vinny-7q0vcq-fast-mainnet.helius-rpc.com"
+const DEFAULT_CLUSTER =
+  (process.env.NEXT_PUBLIC_DEFAULT_CLUSTER as Cluster | undefined) ?? "mainnet-beta"
 
 const STORAGE_KEY = "beamable.network.cluster"
 
@@ -19,11 +21,20 @@ type NetworkState = {
 const NetworkCtx = createContext<NetworkState | null>(null)
 
 export function NetworkProvider({ children }: { children: React.ReactNode }) {
-  const [cluster, setCluster] = useState<Cluster>("devnet")
+  const [cluster, setCluster] = useState<Cluster>(DEFAULT_CLUSTER)
 
   useEffect(() => {
-    const saved = typeof window !== "undefined" ? (localStorage.getItem(STORAGE_KEY) as Cluster | null) : null
-    if (saved === "devnet" || saved === "mainnet") setCluster(saved)
+    if (typeof window === "undefined") return
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return
+    if (raw === "devnet" || raw === "mainnet-beta") {
+      setCluster(raw)
+      return
+    }
+    if (raw === "mainnet") {
+      setCluster("mainnet-beta")
+      localStorage.setItem(STORAGE_KEY, "mainnet-beta")
+    }
   }, [])
 
   useEffect(() => {

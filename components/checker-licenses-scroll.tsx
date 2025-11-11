@@ -13,6 +13,7 @@ interface CheckerLicense {
   name: string
   publicKey: string
   image: string
+  animationUrl?: string | null
   delegatedTo: string | null
   isActivated: boolean
   totalRewards: number

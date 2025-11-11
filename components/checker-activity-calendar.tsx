@@ -108,31 +108,6 @@ export function CheckerActivityCalendar({
     return `${labels[0]} – ${labels[labels.length - 1]}`
   }, [sortedDays])
 
-  const pendingDay = sortedDays.find((day) => day.status === "pending")
-
-  const computeUtcWindowProgress = () => {
-    const now = new Date()
-    const startUtcMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-    const msInDay = 86_400_000
-    const elapsed = now.getTime() - startUtcMs
-    const clamped = Math.min(Math.max(elapsed, 0), msInDay)
-    return {
-      value: (clamped / msInDay) * 100,
-      remainingMs: Math.max(msInDay - clamped, 0),
-    }
-  }
-
-  const [currentDayProgress, setCurrentDayProgress] = useState(computeUtcWindowProgress)
-
-  useEffect(() => {
-    if (!pendingDay) return
-    setCurrentDayProgress(computeUtcWindowProgress())
-    const interval = setInterval(() => {
-      setCurrentDayProgress(computeUtcWindowProgress())
-    }, 60_000)
-    return () => clearInterval(interval)
-  }, [pendingDay])
-
   const firstDate = sortedDays[0] ? new Date(sortedDays[0].date) : null
   const startOffset = firstDate ? ((firstDate.getDay() + 6) % 7) : 0
 
@@ -144,10 +119,6 @@ export function CheckerActivityCalendar({
   while (gridItems.length % 7 !== 0) {
     gridItems.push(null)
   }
-
-  const remainingMs = currentDayProgress.remainingMs
-  const hoursRemaining = Math.max(0, Math.floor(remainingMs / (1000 * 60 * 60)))
-  const minsRemaining = Math.max(0, Math.floor((remainingMs / (1000 * 60)) % 60))
 
   const legendItems = [
     { status: "maxed" as CheckerActivityStatus },
@@ -218,40 +189,6 @@ export function CheckerActivityCalendar({
         </div>
       </div>
 
-      {pendingDay && currentDayProgress && (
-        <div className="mt-6 rounded-xl border border-primary/40 bg-primary/10 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-            <div className="flex items-center gap-2 text-primary">
-              <span className="h-2 w-2 rounded-full bg-primary/70" />
-              <span>
-                UTC Window —
-                {" "}
-                {new Date(pendingDay.date).toLocaleDateString(undefined, {
-                  weekday: "long",
-                  month: "long",
-                  day: "numeric",
-                  timeZone: "UTC",
-                })}
-              </span>
-            </div>
-            <span className="text-xs uppercase tracking-[0.2em] text-primary/80">
-              Results available tomorrow
-            </span>
-          </div>
-          <div className="mt-3 space-y-2 text-xs text-primary/80">
-            <Progress value={currentDayProgress.value} className="h-2 bg-primary/20 [&>div]:bg-primary" />
-            <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em]">
-              <span>{remainingMs > 0 ? "Window closing in" : "Window closed"}</span>
-              <span>
-                {remainingMs > 0
-                  ? `${hoursRemaining}h ${minsRemaining.toString().padStart(2, "0")}m remaining`
-                  : "Awaiting worker submissions"}
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="mt-8 pb-2">
         <div className="w-full">
           <div className="hidden gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground/80 md:grid md:grid-cols-7">
@@ -301,11 +238,9 @@ export function CheckerActivityCalendar({
                       <span className={cn("h-2 w-2 rounded-full", status.dot)} />
                     </div>
                     <p className="text-xs text-primary/80">Window open — results tomorrow.</p>
-                    <div className="flex items-center justify-between text-[11px] text-primary/80">
-                      <span>Window progress</span>
-                      <span>{Math.round(currentDayProgress.value)}%</span>
+                    <div className="text-[11px] text-primary/70">
+                      Track window progress in the Licenses dashboard.
                     </div>
-                    <Progress value={currentDayProgress.value} className="h-1.5 bg-primary/20 [&>div]:bg-primary/80" />
                   </div>
                 )
               }
