@@ -9,7 +9,7 @@
     "start": "next start"
   },
   "dependencies": {
-    "@beamable-network/depin": "0.0.32",
+    "@beamable-network/depin": "0.2.3",
     "@hookform/resolvers": "^3.10.0",
     "@metaplex-foundation/digital-asset-standard-api": "^2.0.0",
     "@metaplex-foundation/mpl-bubblegum": "^5.0.2",
@@ -48,7 +48,7 @@
     "@solana/wallet-adapter-base": "^0.9.27",
     "@solana/wallet-adapter-react": "^0.15.36",
     "@solana/wallet-adapter-react-ui": "^0.9.34",
-    "@solana/wallet-adapter-wallets": "^0.19.31",
+    "@solana/wallet-adapter-wallets": "^0.19.37",
     "@solana/web3.js": "^1.95.3",
     "@tanstack/react-query": "^5.56.2",
     "@vercel/analytics": "latest",

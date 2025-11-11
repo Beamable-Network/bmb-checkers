@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils"
 
 export function NetworkToggle() {
   const { cluster, setCluster } = useNetwork()
-  const other: Cluster = cluster === "devnet" ? "mainnet-beta" : "devnet"
-  const isMainnet = cluster === "mainnet-beta"
+  const other: Cluster = cluster === "devnet" ? "mainnet" : "devnet"
+  const isMainnet = cluster === "mainnet"
 
   return (
     <button

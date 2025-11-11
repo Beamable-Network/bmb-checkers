@@ -32,7 +32,7 @@ export function useDepinActions() {
   const activateChecker = useCallback(
     async (licenseId: string, delegatedTo?: string) => {
       const owner = ensure()
-      const asset = await getAssetWithProofUmi(endpoints.heliusRpc, licenseId)
+      const asset = await getAssetWithProofUmi(endpoints.heliusRpc, cluster, licenseId)
       const delegated = delegatedTo || owner.toBase58()
       console.debug("[Activate] Prepared asset", {
         licenseId,
@@ -43,7 +43,16 @@ export function useDepinActions() {
         proofCount: Array.isArray((asset as any)?.proof) ? (asset as any).proof.length : -1,
       })
       try {
-        const act = new ActivateChecker({ signer: address(owner.toBase58()), checker_license: asset as any, delegated_to: address(delegated) })
+        console.log("ActivateChecker Signer: ", address(owner.toBase58()))
+        console.log("ActivateChecker Delegated: ", address(delegated))
+        console.log("ActivateChecker Asset: ", asset)
+        console.log("ActivateChecker Cluster: ", cluster)
+
+        const act = new ActivateChecker({
+          signer: address(owner.toBase58()),
+          checker_license: asset as any,
+          delegated_to: address(delegated),
+        })
         const ix = await act.getInstruction()
         const web3Ix = kitInstructionToWeb3(ix)
         const sig = await sendWeb3Instruction({ connection, payer: owner, instruction: web3Ix, walletSend: (tx) => sendTransaction(tx, connection) })
@@ -83,8 +92,11 @@ export function useDepinActions() {
   const payoutCheckerRewards = useCallback(
     async (licenseId: string) => {
       const owner = ensure()
-      const asset = await getAssetWithProofUmi(endpoints.heliusRpc, licenseId)
-      const payout = new PayoutCheckerRewards({ signer: address(owner.toBase58()), checker_license: asset as any })
+      const asset = await getAssetWithProofUmi(endpoints.heliusRpc, cluster, licenseId)
+      const payout = new PayoutCheckerRewards({
+        signer: address(owner.toBase58()),
+        checker_license: asset as any,
+      })
       // Fetch TreasuryConfig via web3 connection
       const cfg = await TreasuryConfigAccount.readFromState(async (addr: any) => {
         const info = await connection.getAccountInfo(new (await import("@solana/web3.js")).PublicKey(String(addr)))

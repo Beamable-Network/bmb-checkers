@@ -6,9 +6,8 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  experimental: {
-    turbopack: true,
-  },
+  // Front-end only: generate a static export suitable for any CDN
+  output: 'export',
 }
 
 export default nextConfig

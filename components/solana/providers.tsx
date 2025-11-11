@@ -2,7 +2,8 @@
 
 import { ReactNode, useMemo } from "react"
 import { ConnectionProvider, WalletProvider } from "@solana/wallet-adapter-react"
-import { PhantomWalletAdapter, SolflareWalletAdapter, LedgerWalletAdapter, WalletAdapterNetwork } from "@solana/wallet-adapter-wallets"
+import { WalletAdapterNetwork } from "@solana/wallet-adapter-base"
+import { PhantomWalletAdapter, SolflareWalletAdapter, LedgerWalletAdapter } from "@solana/wallet-adapter-wallets"
 import { useNetwork } from "@/hooks/use-network"
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui"
 import { SolanaMobileWalletAdapter, createDefaultAuthorizationResultCache } from "@solana-mobile/wallet-adapter-mobile"
@@ -24,7 +25,9 @@ export function SolanaProviders({ children }: { children: ReactNode }) {
       icon: `${origin}/SBMB_Token_v2_transparent.png`,
     }
 
-    const network = cluster as WalletAdapterNetwork
+    const walletNetwork =
+      cluster === "mainnet" ? WalletAdapterNetwork.Mainnet : WalletAdapterNetwork.Devnet
+    const mobileCluster = cluster === "mainnet" ? "mainnet-beta" : "devnet"
 
     const adapters = [] as any[]
 
@@ -33,7 +36,7 @@ export function SolanaProviders({ children }: { children: ReactNode }) {
         new SolanaMobileWalletAdapter({
           appIdentity,
           authorizationResultCache: createDefaultAuthorizationResultCache(),
-          cluster: network,
+          cluster: mobileCluster,
         }),
       )
     } catch (error) {
@@ -41,7 +44,7 @@ export function SolanaProviders({ children }: { children: ReactNode }) {
     }
 
     adapters.push(new PhantomWalletAdapter())
-    adapters.push(new SolflareWalletAdapter({ network }))
+    adapters.push(new SolflareWalletAdapter({ network: walletNetwork }))
     adapters.push(new LedgerWalletAdapter())
 
     try {

@@ -3,12 +3,20 @@
 import type React from "react"
 import { createContext, useContext, useEffect, useMemo, useState } from "react"
 
-export type Cluster = "devnet" | "mainnet-beta"
+export type Cluster = "devnet" | "mainnet"
 
 const DEVNET_RPC = "https://myriam-dhwfh7-fast-devnet.helius-rpc.com"
 const MAINNET_RPC = "https://vinny-7q0vcq-fast-mainnet.helius-rpc.com"
-const DEFAULT_CLUSTER =
-  (process.env.NEXT_PUBLIC_DEFAULT_CLUSTER as Cluster | undefined) ?? "mainnet-beta"
+
+function normalizeCluster(value: string | null | undefined): Cluster | undefined {
+  if (!value) return undefined
+  const lower = value.toLowerCase()
+  if (lower === "devnet") return "devnet"
+  if (lower === "mainnet" || lower === "mainnet-beta") return "mainnet"
+  return undefined
+}
+
+const DEFAULT_CLUSTER = normalizeCluster(process.env.NEXT_PUBLIC_DEFAULT_CLUSTER) ?? "mainnet"
 
 const STORAGE_KEY = "beamable.network.cluster"
 
@@ -25,20 +33,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return
-    if (raw === "devnet" || raw === "mainnet-beta") {
-      if (raw === DEFAULT_CLUSTER) {
-        setCluster(raw)
-      } else {
-        setCluster(DEFAULT_CLUSTER)
-      }
-      return
-    }
-    if (raw === "mainnet") {
-      setCluster("mainnet-beta")
-      localStorage.setItem(STORAGE_KEY, "mainnet-beta")
-    }
+    const saved = normalizeCluster(localStorage.getItem(STORAGE_KEY))
+    if (saved) setCluster(saved)
   }, [])
 
   useEffect(() => {
