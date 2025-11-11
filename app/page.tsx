@@ -1,13 +1,15 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import Image from "next/image"
+import Link from "next/link"
+import { useMemo, useState, type SVGProps } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { WalletConnect } from "@/components/wallet-connect"
 import { DelegateDialog } from "@/components/delegate-dialog"
 import { CheckerLicensesScroll } from "@/components/checker-licenses-scroll"
 import type { CheckerLicenseAction } from "@/components/checker-license-card"
-import { Wallet, Award, CheckCircle, Users, Coins } from "lucide-react"
+import { Wallet, Award, CheckCircle, Users, Coins, Lock } from "lucide-react"
 import { useWallet } from "@solana/wallet-adapter-react"
 import { useBmbBalance } from "@/hooks/use-bmb-balance"
 import { useCheckerLicenses } from "@/hooks/use-checker-licenses"
@@ -47,6 +49,32 @@ function formatBmbAmount(value: number): string {
   })
   return formatted.replace(/\.?0+$/, "")
 }
+
+type SocialIconProps = SVGProps<SVGSVGElement>
+
+const DiscordIcon = ({ className, ...props }: SocialIconProps) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden="true"
+    className={className}
+    {...props}
+  >
+    <path d="M20.317 4.369a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.863-.608 1.249-1.844-.277-3.68-.277-5.486 0-.164-.402-.405-.874-.617-1.249a.077.077 0 0 0-.079-.037 19.736 19.736 0 0 0-4.885 1.515.07.07 0 0 0-.032.027C1.32 9.042.48 13.58.838 18.062a.082.082 0 0 0 .031.056 19.9 19.9 0 0 0 6.021 3.058.078.078 0 0 0 .084-.027c.464-.63.877-1.295 1.226-1.994a.076.076 0 0 0-.041-.104 12.998 12.998 0 0 1-1.872-.892.077.077 0 0 1-.036-.065c.005-.029.03-.051.063-.056 3.927 1.793 8.18 1.793 12.061 0 .032.005.058.027.063.056a.077.077 0 0 1-.036.065 12.32 12.32 0 0 1-1.872.892.076.076 0 0 0-.041.104c.36.699.773 1.364 1.226 1.994a.077.077 0 0 0 .084.027 19.875 19.875 0 0 0 6.03-3.058.076.076 0 0 0 .031-.056c.5-5.177-.838-9.682-3.548-13.666a.061.061 0 0 0-.032-.027zm-12.037 9.96c-1.183 0-2.157-1.095-2.157-2.437 0-1.341.955-2.437 2.157-2.437 1.211 0 2.175 1.105 2.157 2.437 0 1.341-.955 2.437-2.157 2.437zm7.46 0c-1.183 0-2.157-1.095-2.157-2.437 0-1.341.955-2.437 2.157-2.437 1.211 0 2.175 1.105 2.157 2.437 0 1.341-.946 2.437-2.157 2.437z" />
+  </svg>
+)
+
+const XIcon = ({ className, ...props }: SocialIconProps) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden="true"
+    className={className}
+    {...props}
+  >
+    <path d="M18.244 3h2.963l-6.476 7.399L22 21h-5.807l-4.551-5.958L6.374 21H3.41l6.91-7.908L2 3h5.977l4.114 5.495L18.244 3zm-1.037 16.146h1.64L7.88 4.002H6.15l11.057 15.144z" />
+  </svg>
+)
 
 const mockCheckerLicenses = [
   {
@@ -182,19 +210,76 @@ export default function CheckerConsole() {
     return { lamports, units }
   }, [connected, licenses, licensesData])
   const claimableRewardsLamports = claimableRewards.lamports
-  const claimableRewardsDisplay = formatLamports(claimableRewardsLamports)
-  const unlockedBmbLamports = useMemo(() => {
-    if (!connected) return 0n
-    return lockedRewards.reduce((sum, reward) => {
-      const lamports = BigInt(Math.round(reward.maturedAmount * LAMPORTS_PER_BMB_NUMBER))
-      return sum + lamports
-    }, 0n)
+  const { unlockedLamports: unlockedBmbLamports, lockedLamports: lockedBmbLamports } = useMemo(() => {
+    if (!connected) return { unlockedLamports: 0n, lockedLamports: 0n }
+    return lockedRewards.reduce(
+      (acc, reward) => {
+        const totalLamports = reward.totalLockedRaw ?? 0n
+        const maturedLamports = BigInt(Math.round(reward.maturedAmount * LAMPORTS_PER_BMB_NUMBER))
+        const remainingLamports = totalLamports > maturedLamports ? totalLamports - maturedLamports : 0n
+        acc.unlockedLamports += maturedLamports
+        acc.lockedLamports += remainingLamports
+        return acc
+      },
+      { unlockedLamports: 0n, lockedLamports: 0n },
+    )
   }, [connected, lockedRewards])
   const unlockedBmbDisplay = formatLamports(unlockedBmbLamports)
+  const claimableRewardsDisplay = formatLamports(claimableRewardsLamports)
+  const lockedBmbDisplay = formatLamports(lockedBmbLamports)
   const licensesOwned = licensesData.length
   const licensesDelegated = licensesData.filter((l) => l.delegatedTo !== null).length
   const licensesActivated = licensesData.filter((l) => l.isActivated).length
   const walletBalance = bmbBalance ?? 0
+
+  const licenseMetrics = useMemo(
+    () => [
+      {
+        title: "Licenses Owned",
+        description: "Total checker licenses available",
+        icon: Wallet,
+        value: licensesOwned.toLocaleString(),
+      },
+      {
+        title: "Licenses Delegated",
+        description: "Operating with delegated operators",
+        icon: Users,
+        value: licensesDelegated.toLocaleString(),
+      },
+      {
+        title: "Licenses Activated",
+        description: "Ready to perform checks",
+        icon: CheckCircle,
+        value: licensesActivated.toLocaleString(),
+      },
+    ],
+    [licensesOwned, licensesDelegated, licensesActivated],
+  )
+
+  const balanceMetrics = useMemo(
+    () => [
+      {
+        title: "Unlocked BMB",
+        description: "Vesting rewards ready to withdraw",
+        icon: Award,
+        value: unlockedBmbDisplay,
+        accent: true,
+      },
+      {
+        title: "Locked BMB",
+        description: "Currently vesting across all periods",
+        icon: Lock,
+        value: lockedBmbDisplay,
+      },
+      {
+        title: "Unclaimed BMB",
+        description: "Checker rewards ready to claim",
+        icon: Coins,
+        value: claimableRewardsDisplay,
+      },
+    ],
+    [unlockedBmbDisplay, lockedBmbDisplay, claimableRewardsDisplay],
+  )
 
   const activityCalendarDays = useMemo<CheckerActivityDay[]>(() => {
     const total = licensesData.length
@@ -416,59 +501,27 @@ export default function CheckerConsole() {
     }
   }
 
-  const metricCards = useMemo(
-    () => [
-      {
-        title: "Licenses Owned",
-        description: "Total checker licenses available",
-        icon: Wallet,
-        value: licensesOwned.toLocaleString(),
-      },
-      {
-        title: "Licenses Delegated",
-        description: "Operating with delegated operators",
-        icon: Users,
-        value: licensesDelegated.toLocaleString(),
-      },
-      {
-        title: "Licenses Activated",
-        description: "Ready to perform checks",
-        icon: CheckCircle,
-        value: licensesActivated.toLocaleString(),
-      },
-      {
-        title: "Unlocked BMB",
-        description: "Vesting rewards ready to withdraw",
-        icon: Award,
-        value: `${unlockedBmbDisplay} $BMB`,
-        accent: true,
-      },
-      {
-        title: "Unclaimed BMB",
-        description: "Total checker rewards that can be claimed right now",
-        icon: Coins,
-        value: `${claimableRewardsDisplay} $BMB`,
-      },
-    ],
-    [licensesOwned, licensesDelegated, licensesActivated, unlockedBmbDisplay, claimableRewardsDisplay],
-  )
-
   return (
     <div className="relative min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-50 border-b border-primary/40 bg-secondary/80 backdrop-blur-md">
         <span className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary shadow-lg shadow-primary/30">
-              <svg className="h-6 w-6 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
+          <Link href="https://beamable.network" target="_blank" rel="noreferrer" className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg bg-primary/20 shadow-lg shadow-primary/30 ring-1 ring-primary/40">
+              <Image
+                src="/SBMB_Token_v2_transparent.webp"
+                alt="Beamable Network"
+                width={40}
+                height={40}
+                className="h-full w-full object-contain"
+                priority
+              />
             </div>
-            <div>
+            <div className="text-left">
               <h1 className="text-xl font-semibold tracking-tight">Beamable Network</h1>
               <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Checker Licensing Console</p>
             </div>
-          </div>
+          </Link>
 
           <div className="flex flex-1 flex-wrap items-center justify-end gap-3 sm:gap-4">
             {connected && (
@@ -528,8 +581,8 @@ export default function CheckerConsole() {
                 </div>
               </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                {metricCards.map(({ title, description, icon: Icon, value, accent }) => (
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {licenseMetrics.map(({ title, description, icon: Icon, value }) => (
                   <Card
                     key={title}
                     className="border border-border/60 bg-card/70 p-0 shadow-md shadow-secondary/20 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-primary/20"
@@ -543,7 +596,30 @@ export default function CheckerConsole() {
                       </div>
                     </CardHeader>
                     <CardContent className="px-5 py-3">
-                      <CardTitle className={`text-2xl font-semibold ${accent ? "text-primary" : ""}`}>{value}</CardTitle>
+                      <CardTitle className="text-2xl font-semibold">{value}</CardTitle>
+                      <CardDescription className="mt-2 text-xs text-muted-foreground">{description}</CardDescription>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {balanceMetrics.map(({ title, description, icon: Icon, value, accent }) => (
+                  <Card
+                    key={title}
+                    className="border border-border/60 bg-card/70 p-0 shadow-md shadow-secondary/20 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-primary/20"
+                  >
+                    <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border/60 bg-secondary/60 px-5 py-2.5">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{title}</p>
+                      </div>
+                      <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border/60 bg-card/60 text-primary">
+                        <Icon className="h-4 w-4" />
+                      </div>
+                    </CardHeader>
+                    <CardContent className="px-5 py-3">
+                      <CardTitle className={`break-words text-2xl font-semibold ${accent ? "text-primary" : ""}`}>
+                        {value}
+                      </CardTitle>
                       <CardDescription className="mt-2 text-xs text-muted-foreground">{description}</CardDescription>
                     </CardContent>
                   </Card>
@@ -619,6 +695,60 @@ export default function CheckerConsole() {
           </div>
         )}
       </main>
+
+      <footer className="border-t border-border/60 bg-secondary/50">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-6 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-center sm:text-left">© {new Date().getFullYear()} Beamable Network</p>
+          <nav className="flex flex-wrap items-center justify-center gap-4">
+            <Link
+              href="https://docs.beamable.network/policies/terms-of-service"
+              target="_blank"
+              rel="noreferrer"
+              className="transition hover:text-foreground"
+            >
+              Terms of Service
+            </Link>
+            <span className="hidden text-border sm:inline">•</span>
+            <Link
+              href="https://docs.beamable.network/policies/privacy-policy"
+              target="_blank"
+              rel="noreferrer"
+              className="transition hover:text-foreground"
+            >
+              Privacy Policy
+            </Link>
+            <span className="hidden text-border sm:inline">•</span>
+            <Link
+              href="https://docs.beamable.network/policies/disclaimer"
+              target="_blank"
+              rel="noreferrer"
+              className="transition hover:text-foreground"
+            >
+              Disclaimer
+            </Link>
+          </nav>
+          <div className="flex items-center justify-center gap-2 text-sm sm:justify-end">
+            <Link
+              href="https://discord.gg/beamablenetwork"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Beamable Network on Discord"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/60 bg-card/70 text-muted-foreground transition hover:border-primary/60 hover:text-primary"
+            >
+              <DiscordIcon className="h-4 w-4" />
+            </Link>
+            <Link
+              href="https://x.com/Beamablenetwork"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Beamable Network on X"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/60 bg-card/70 text-muted-foreground transition hover:border-primary/60 hover:text-primary"
+            >
+              <XIcon className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </div>
+      </footer>
 
       <DelegateDialog
         open={isDelegateDialogOpen}
