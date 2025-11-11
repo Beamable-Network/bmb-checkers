@@ -331,12 +331,7 @@ export function VestingRewards({
                     </div>
                     <div className="rounded-lg border border-border/60 bg-secondary/40 p-3">
                       <p className="text-xs uppercase tracking-[0.15em] text-muted-foreground">Penalty today</p>
-                      <p className="mt-1 font-semibold text-primary">
-                        {formatAmount(position.penaltyAmount)} $BMB
-                        {position.penaltyPct > 0.000001 && (
-                          <span className="ml-1 text-xs text-muted-foreground">({formatPercent(position.penaltyPct)}%)</span>
-                        )}
-                      </p>
+                      <p className="mt-1 font-semibold text-primary">{formatAmount(position.penaltyAmount)} $BMB</p>
                     </div>
                     <div className="rounded-lg border border-border/60 bg-secondary/40 p-3">
                       <p className="text-xs uppercase tracking-[0.15em] text-muted-foreground">Vesting schedule</p>
