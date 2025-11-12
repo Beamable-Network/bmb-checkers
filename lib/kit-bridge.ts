@@ -22,16 +22,34 @@ export async function sendWeb3Instruction(args: {
   payer: PublicKey
   instruction: TransactionInstruction
   walletSend: (tx: VersionedTransaction) => Promise<string>
+  awaitConfirmation?: boolean
+  commitment?: import("@solana/web3.js").Commitment
 }) {
-  const { connection, payer, instruction, walletSend } = args
+  const {
+    connection,
+    payer,
+    instruction,
+    walletSend,
+    awaitConfirmation = true,
+    commitment = "finalized",
+  } = args
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash()
   const messageV0 = new TransactionMessage({ payerKey: payer, recentBlockhash: blockhash, instructions: [instruction] }).compileToV0Message()
   const tx = new VersionedTransaction(messageV0)
   const sig = await walletSend(tx)
-  try {
-    await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "finalized")
-  } catch (e) {
-    console.warn("Transaction confirmation failed", e)
+  const confirmationPromise = connection
+    .confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, commitment)
+    .catch((e) => {
+      console.warn("Transaction confirmation failed", e)
+      throw e
+    })
+
+  if (awaitConfirmation) {
+    await confirmationPromise
   }
-  return sig
+
+  return {
+    signature: sig,
+    confirmation: confirmationPromise.then(() => undefined),
+  }
 }

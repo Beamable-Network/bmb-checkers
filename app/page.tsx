@@ -22,7 +22,6 @@ import { CheckerActivityCalendar, type CheckerActivityDay } from "@/components/c
 import { VestingRewards } from "@/components/vesting-rewards"
 import { useLockedRewards, type LockedRewardPosition } from "@/hooks/use-locked-rewards"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Progress } from "@/components/ui/progress"
 
 const LAMPORTS_PER_BMB = 1_000_000_000n
 const LAMPORTS_PER_BMB_NUMBER = Number(LAMPORTS_PER_BMB)
@@ -82,6 +81,7 @@ const XIcon = ({ className, ...props }: SocialIconProps) => (
 
 type ClaimProgressState = {
   total: number
+  submitted: number
   completed: number
   failed: number
   currentId: string | null
@@ -185,6 +185,8 @@ export default function CheckerConsole() {
   const { activateChecker, payoutCheckerRewards, unlockLockedTokens, refreshLatestBlockhash } = useDepinActions()
   const [claimingRewards, setClaimingRewards] = useState(false)
   const [claimProgress, setClaimProgress] = useState<ClaimProgressState | null>(null)
+  const [activatingLicenses, setActivatingLicenses] = useState(false)
+  const [activateProgress, setActivateProgress] = useState<ClaimProgressState | null>(null)
   const [pendingActions, setPendingActions] = useState<Record<string, CheckerLicenseAction>>({})
   const [lockedWithdrawState, setLockedWithdrawState] = useState<Record<string, boolean>>({})
   const [withdrawingLockedSelection, setWithdrawingLockedSelection] = useState(false)
@@ -202,6 +204,8 @@ export default function CheckerConsole() {
   }
 
   const licensesData = connected ? licenses : mockCheckerLicenses
+  const inactiveLicenses = useMemo(() => licensesData.filter((license) => !license.isActivated), [licensesData])
+  const hasInactiveLicenses = inactiveLicenses.length > 0
   const displayedLicenses = useMemo(() => {
     if (!pendingRewardsOnly) return licensesData
     return licensesData.filter((license) => license.isActivated && (license.totalRewards ?? 0) > 0)
@@ -301,11 +305,84 @@ export default function CheckerConsole() {
 
   const claimProgressSummary = useMemo(() => {
     if (!claimProgress) return null
-    const processed = claimProgress.completed + claimProgress.failed
-    const remaining = Math.max(claimProgress.total - processed, 0)
-    const value = claimProgress.total > 0 ? (processed / claimProgress.total) * 100 : 0
-    return { processed, remaining, value }
+    const { total, submitted, completed, failed } = claimProgress
+    const confirmed = Math.min(completed + failed, total)
+    const submissionPercent = total > 0 ? (submitted / total) * 100 : 0
+    const completionPercent = total > 0 ? (confirmed / total) * 100 : 0
+    const remainingSubmissions = Math.max(total - submitted, 0)
+    const remainingCompletions = Math.max(total - confirmed, 0)
+    return {
+      total,
+      submitted,
+      completed,
+      failed,
+      confirmed,
+      submissionPercent,
+      completionPercent,
+      remainingSubmissions,
+      remainingCompletions,
+    }
   }, [claimProgress])
+
+  const currentActivateLabel = useMemo(() => {
+    if (!activateProgress?.currentId) return null
+    const license = licensesData.find((item) => item.id === activateProgress.currentId)
+    return license?.name || `License ${activateProgress.currentId}`
+  }, [activateProgress, licensesData])
+
+  const activateProgressSummary = useMemo(() => {
+    if (!activateProgress) return null
+    const { total, submitted, completed, failed } = activateProgress
+    const confirmed = Math.min(completed + failed, total)
+    const submissionPercent = total > 0 ? (submitted / total) * 100 : 0
+    const completionPercent = total > 0 ? (confirmed / total) * 100 : 0
+    const remainingSubmissions = Math.max(total - submitted, 0)
+    const remainingCompletions = Math.max(total - confirmed, 0)
+    return {
+      total,
+      submitted,
+      completed,
+      failed,
+      confirmed,
+      submissionPercent,
+      completionPercent,
+      remainingSubmissions,
+      remainingCompletions,
+    }
+  }, [activateProgress])
+
+  const utcWindowMode = useMemo(() => {
+    if (activatingLicenses && activateProgress && activateProgressSummary) {
+      return {
+        type: "activate" as const,
+        total: activateProgressSummary.total,
+        submitted: activateProgressSummary.submitted,
+        label: currentActivateLabel,
+        completed: activateProgressSummary.completed,
+        failed: activateProgressSummary.failed,
+      }
+    }
+    if (claimingRewards && claimProgress && claimProgressSummary) {
+      return {
+        type: "claim" as const,
+        total: claimProgressSummary.total,
+        submitted: claimProgressSummary.submitted,
+        label: currentClaimLabel,
+        completed: claimProgressSummary.completed,
+        failed: claimProgressSummary.failed,
+      }
+    }
+    return { type: "idle" as const }
+  }, [
+    activatingLicenses,
+    activateProgress,
+    activateProgressSummary,
+    currentActivateLabel,
+    claimingRewards,
+    claimProgress,
+    claimProgressSummary,
+    currentClaimLabel,
+  ])
 
   const activityCalendarDays = useMemo<CheckerActivityDay[]>(() => {
     const total = licensesData.length
@@ -383,7 +460,8 @@ export default function CheckerConsole() {
     try {
       setPendingAction(licenseId, "undelegate")
       const t = toast({ title: "Undelegating…", description: `License ${licenseId}` })
-      await activateChecker(licenseId)
+      const { confirmation } = await activateChecker(licenseId)
+      await confirmation
       t.update({ title: "Undelegated" })
     } catch (e: any) {
       toast({ title: "Undelegate failed", description: e?.message || String(e) })
@@ -397,8 +475,8 @@ export default function CheckerConsole() {
       setPendingAction(licenseId, "activate")
       console.debug("[UI] Activate click", { licenseId })
       const t = toast({ title: "Activating…", description: `License ${licenseId}` })
-      const sig = await activateChecker(licenseId)
-      t.update({ title: "Activated", description: sig })
+      const { signature } = await activateChecker(licenseId)
+      t.update({ title: "Activated", description: signature })
     } catch (e: any) {
       console.error("[UI] Activation failed", { message: e?.message, stack: e?.stack })
       toast({ title: "Activation failed", description: e?.message || String(e) })
@@ -422,47 +500,115 @@ export default function CheckerConsole() {
     }
 
     let progressToast: ReturnType<typeof toast> | undefined
-    let failureCount = 0
     let lastErrorMessage: string | undefined
+    let failureCount = 0
+    let submittedCount = 0
+    let successCount = 0
+    const confirmationTasks: Promise<void>[] = []
+
+    const updateToast = () => {
+      progressToast?.update({
+        title: "Claiming…",
+        description: `Submitted ${submittedCount}/${list.length} • Completed ${successCount + failureCount}/${list.length}`,
+      })
+    }
 
     try {
       setClaimingRewards(true)
-      setClaimProgress({ total: list.length, completed: 0, failed: 0, currentId: null })
-      progressToast = toast({ title: "Claiming…", description: `0/${list.length} license(s)` })
-      let processed = 0
+      setClaimProgress({ total: list.length, submitted: 0, completed: 0, failed: 0, currentId: null })
+      progressToast = toast({
+        title: "Claiming…",
+        description: `Submitted 0/${list.length} • Completed 0/${list.length}`,
+      })
 
       for (let idx = 0; idx < chunks.length; idx += 1) {
         const chunk = chunks[idx]
-        for (const id of chunk) {
-          setPendingAction(id, "claim")
-        }
+        chunk.forEach((id) => setPendingAction(id, "claim"))
+
         for (const id of chunk) {
           setClaimProgress((prev) => (prev ? { ...prev, currentId: id } : prev))
           try {
-            await payoutCheckerRewards(id)
-            setClaimProgress((prev) => (prev ? { ...prev, completed: prev.completed + 1 } : prev))
+            const { confirmation } = await payoutCheckerRewards(id, { awaitConfirmation: false })
+            submittedCount += 1
+            setClaimProgress((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    currentId: null,
+                    submitted: submittedCount,
+                  }
+                : prev,
+            )
+            updateToast()
+
+            const confirmTask = confirmation
+              .then(() => {
+                successCount += 1
+                setClaimProgress((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        submitted: submittedCount,
+                        completed: successCount,
+                        failed: failureCount,
+                      }
+                    : prev,
+                )
+                updateToast()
+              })
+              .catch((error: any) => {
+                failureCount += 1
+                lastErrorMessage = error?.message || String(error)
+                setClaimProgress((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        submitted: submittedCount,
+                        completed: successCount,
+                        failed: failureCount,
+                      }
+                    : prev,
+                )
+                updateToast()
+              })
+              .finally(() => {
+                clearPendingAction(id)
+              })
+
+            confirmationTasks.push(confirmTask)
           } catch (error: any) {
             failureCount += 1
+            submittedCount += 1
             lastErrorMessage = error?.message || String(error)
-            setClaimProgress((prev) => (prev ? { ...prev, failed: prev.failed + 1 } : prev))
-          } finally {
+            setClaimProgress((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    currentId: null,
+                    submitted: submittedCount,
+                    completed: successCount,
+                    failed: failureCount,
+                  }
+                : prev,
+            )
+            updateToast()
             clearPendingAction(id)
-            processed += 1
-            setClaimProgress((prev) => (prev ? { ...prev, currentId: null } : prev))
-            progressToast?.update({ title: "Claiming…", description: `${processed}/${list.length} license(s)` })
           }
         }
+
         const hasMoreChunks = idx < chunks.length - 1
         if (hasMoreChunks) {
           await refreshLatestBlockhash()
         }
       }
 
+      await Promise.allSettled(confirmationTasks)
+
       if (failureCount > 0) {
-        const successCount = list.length - failureCount
+        const successTotal = successCount
         progressToast?.update({
           title: "Claimed with issues",
-          description: `${successCount} succeeded, ${failureCount} failed`,
+          description: `${successTotal} succeeded, ${failureCount} failed`,
         })
         toast({
           title: "Claim completed with issues",
@@ -470,14 +616,156 @@ export default function CheckerConsole() {
           variant: "destructive",
         })
       } else {
-        progressToast?.update({ title: "Claimed", description: `${list.length} processed` })
+        progressToast?.update({
+          title: "Claimed",
+          description: `${successCount} processed`,
+        })
       }
     } catch (e: any) {
-      progressToast?.update({ title: "Claim failed", description: e?.message || "Unable to claim rewards." })
+      progressToast?.update({
+        title: "Claim failed",
+        description: e?.message || "Unable to claim rewards.",
+      })
       toast({ title: "Claim failed", description: e?.message || String(e) })
     } finally {
       setClaimingRewards(false)
       setClaimProgress(null)
+    }
+  }
+
+  const handleActivateAllLicenses = async () => {
+    if (!connected || activatingLicenses) return
+    const targets = inactiveLicenses
+    if (targets.length === 0) return
+
+    let progressToast: ReturnType<typeof toast> | undefined
+    let lastErrorMessage: string | undefined
+    let failureCount = 0
+    let submittedCount = 0
+    let successCount = 0
+    const confirmationTasks: Promise<void>[] = []
+
+    const updateToast = () => {
+      progressToast?.update({
+        title: "Activating…",
+        description: `Submitted ${submittedCount}/${targets.length} • Completed ${successCount + failureCount}/${targets.length}`,
+      })
+    }
+
+    try {
+      setActivatingLicenses(true)
+      setActivateProgress({ total: targets.length, submitted: 0, completed: 0, failed: 0, currentId: null })
+      progressToast = toast({
+        title: "Activating…",
+        description: `Submitted 0/${targets.length} • Completed 0/${targets.length}`,
+      })
+
+      for (let index = 0; index < targets.length; index += 1) {
+        const license = targets[index]
+        setPendingAction(license.id, "activate")
+        setActivateProgress((prev) => (prev ? { ...prev, currentId: license.id } : prev))
+        try {
+          const { confirmation } = await activateChecker(license.id, undefined, { awaitConfirmation: false })
+          submittedCount += 1
+          setActivateProgress((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  currentId: null,
+                  submitted: submittedCount,
+                }
+              : prev,
+          )
+          updateToast()
+
+          const confirmTask = confirmation
+            .then(() => {
+              successCount += 1
+              setActivateProgress((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      submitted: submittedCount,
+                      completed: successCount,
+                      failed: failureCount,
+                    }
+                  : prev,
+              )
+              updateToast()
+            })
+            .catch((error: any) => {
+              failureCount += 1
+              lastErrorMessage = error?.message || String(error)
+              setActivateProgress((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      submitted: submittedCount,
+                      completed: successCount,
+                      failed: failureCount,
+                    }
+                  : prev,
+              )
+              updateToast()
+            })
+            .finally(() => {
+              clearPendingAction(license.id)
+            })
+
+          confirmationTasks.push(confirmTask)
+        } catch (error: any) {
+          failureCount += 1
+          submittedCount += 1
+          lastErrorMessage = error?.message || String(error)
+          setActivateProgress((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  currentId: null,
+                  submitted: submittedCount,
+                  completed: successCount,
+                  failed: failureCount,
+                }
+              : prev,
+          )
+          updateToast()
+          clearPendingAction(license.id)
+        }
+
+        const hasMore = index < targets.length - 1
+        if (hasMore && (index + 1) % 10 === 0) {
+          await refreshLatestBlockhash()
+        }
+      }
+
+      await Promise.allSettled(confirmationTasks)
+
+      if (failureCount > 0) {
+        const successTotal = successCount
+        progressToast?.update({
+          title: "Activation completed with issues",
+          description: `${successTotal} succeeded, ${failureCount} failed`,
+        })
+        toast({
+          title: "Activation issues",
+          description: lastErrorMessage || `${failureCount} license(s) failed to activate.`,
+          variant: "destructive",
+        })
+      } else {
+        progressToast?.update({
+          title: "Activation complete",
+          description: `${successCount} processed`,
+        })
+      }
+    } catch (e: any) {
+      progressToast?.update({
+        title: "Activation failed",
+        description: e?.message || "Unable to activate licenses.",
+      })
+      toast({ title: "Activation failed", description: e?.message || String(e) })
+    } finally {
+      setActivatingLicenses(false)
+      setActivateProgress(null)
     }
   }
 
@@ -490,8 +778,8 @@ export default function CheckerConsole() {
     try {
       setPendingAction(licenseId, "claim")
       toastHandle = toast({ title: "Claiming reward…", description: `License ${licenseId}` })
-      const sig = await payoutCheckerRewards(licenseId)
-      toastHandle?.update({ title: "Claimed", description: sig })
+      const { signature } = await payoutCheckerRewards(licenseId)
+      toastHandle?.update({ title: "Claimed", description: signature })
     } catch (e: any) {
       toast({ title: "Claim failed", description: e?.message || String(e) })
     } finally {
@@ -690,7 +978,7 @@ export default function CheckerConsole() {
             </section>
 
             <section className="rounded-2xl border border-border/60 bg-card/80 p-6 shadow-xl shadow-secondary/20">
-              <div className="flex flex-wrap items-end justify-between gap-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Licenses</p>
                   <h2 className="mt-1 text-2xl font-semibold tracking-tight">Your checker licenses</h2>
@@ -698,25 +986,24 @@ export default function CheckerConsole() {
                     Search and filter licensing assets. Activate operators or delegate management with a single click.
                   </p>
                 </div>
-                <div className="flex w-full flex-col gap-3 text-xs text-muted-foreground sm:w-auto sm:flex-row sm:items-center sm:gap-6">
+                <div className="flex w-full flex-col gap-2 text-xs text-muted-foreground sm:w-auto sm:max-w-xs sm:items-end">
                   <div className="flex items-center gap-2">
                     <span>{licensesData.length.toLocaleString()} total</span>
                     <span className="hidden sm:inline">•</span>
                     <span>{licensesDelegated.toLocaleString()} delegated</span>
                   </div>
                   {connected && (
-                    <div className="flex w-full flex-col gap-2 sm:w-auto">
-                      <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3">
-                        <div className="flex items-center gap-2">
-                          <Checkbox
-                            id="filter-pending"
-                            checked={pendingRewardsOnly}
-                            onCheckedChange={(checked) => setPendingRewardsOnly(checked === true)}
-                          />
-                          <label htmlFor="filter-pending" className="text-xs text-muted-foreground">
-                            Pending Rewards
-                          </label>
-                        </div>
+                    <>
+                      <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleActivateAllLicenses}
+                          disabled={!connected || !hasInactiveLicenses || activatingLicenses}
+                          className="h-8 rounded-lg border-primary/40 bg-primary/15 px-3 text-xs font-semibold text-primary shadow shadow-primary/20 disabled:cursor-not-allowed disabled:border-border disabled:bg-secondary/40 disabled:text-muted-foreground"
+                        >
+                          {activatingLicenses ? "Activating…" : "Activate All"}
+                        </Button>
                         <Button
                           size="sm"
                           variant="outline"
@@ -727,38 +1014,13 @@ export default function CheckerConsole() {
                           {claimingRewards ? "Claiming…" : "Claim All"}
                         </Button>
                       </div>
-                      {claimingRewards && claimProgress && claimProgressSummary ? (
-                        <div className="w-full rounded-lg border border-primary/40 bg-primary/10 p-3 text-[11px] text-foreground shadow-sm shadow-primary/10 sm:min-w-[280px]">
-                          <div className="flex items-center justify-between text-xs font-semibold">
-                            <span>Claiming rewards</span>
-                            <span>
-                              {claimProgressSummary.processed}/{claimProgress.total}
-                            </span>
-                          </div>
-                          <Progress value={claimProgressSummary.value} className="mt-2 h-2" />
-                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-foreground/80">
-                            <span>Completed {claimProgress.completed}</span>
-                            <span className={claimProgress.failed > 0 ? "text-destructive" : undefined}>
-                              Failed {claimProgress.failed}
-                            </span>
-                            <span>Remaining {claimProgressSummary.remaining}</span>
-                          </div>
-                          {currentClaimLabel ? (
-                            <p className="mt-1 truncate text-[11px] text-foreground/70">
-                              Processing <span className="text-foreground">{currentClaimLabel}</span>
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
+                    </>
                   )}
                 </div>
               </div>
-              {pendingActivityDay ? (
-                <div className="mt-4">
-                  <UtcWindowProgress pendingDay={pendingActivityDay} />
-                </div>
-              ) : null}
+              <div className="mt-4">
+                <UtcWindowProgress pendingDay={pendingActivityDay} mode={utcWindowMode} />
+              </div>
               <div className="mt-6">
                 <CheckerLicensesScroll
                   licenses={displayedLicenses}
@@ -767,6 +1029,8 @@ export default function CheckerConsole() {
                   onUndelegate={handleUndelegate}
                   onClaim={connected ? handleClaimLicenseRewards : undefined}
                   pendingActions={pendingActions}
+                  showPendingOnly={pendingRewardsOnly}
+                  onTogglePending={(value) => setPendingRewardsOnly(value)}
                 />
               </div>
             </section>

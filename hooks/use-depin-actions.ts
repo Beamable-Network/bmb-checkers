@@ -30,7 +30,11 @@ export function useDepinActions() {
   }, [publicKey])
 
   const activateChecker = useCallback(
-    async (licenseId: string, delegatedTo?: string) => {
+    async (
+      licenseId: string,
+      delegatedTo?: string,
+      options?: { awaitConfirmation?: boolean },
+    ) => {
       const owner = ensure()
       const asset = await getAssetWithProofUmi(endpoints.heliusRpc, cluster, licenseId)
       const delegated = delegatedTo || owner.toBase58()
@@ -55,22 +59,41 @@ export function useDepinActions() {
         })
         const ix = await act.getInstruction()
         const web3Ix = kitInstructionToWeb3(ix)
-        const sig = await sendWeb3Instruction({ connection, payer: owner, instruction: web3Ix, walletSend: (tx) => sendTransaction(tx, connection) })
-        const key = ["checkerLicenses", cluster, owner.toBase58()]
-        queryClient.setQueryData<CheckerLicense[] | undefined>(key, (old) => {
-          if (!old) return old
-          return old.map((lic) =>
-            lic.id === licenseId
-              ? {
-                  ...lic,
-                  isActivated: true,
-                  delegatedTo: delegated && delegated !== owner.toBase58() ? delegated : null,
-                }
-              : lic,
-          )
+        const { signature, confirmation } = await sendWeb3Instruction({
+          connection,
+          payer: owner,
+          instruction: web3Ix,
+          walletSend: (tx) => sendTransaction(tx, connection),
+          awaitConfirmation: options?.awaitConfirmation ?? true,
         })
-        queryClient.invalidateQueries({ queryKey: key })
-        return sig
+        const key = ["checkerLicenses", cluster, owner.toBase58()]
+        const updateCache = () => {
+          queryClient.setQueryData<CheckerLicense[] | undefined>(key, (old) => {
+            if (!old) return old
+            return old.map((lic) =>
+              lic.id === licenseId
+                ? {
+                    ...lic,
+                    isActivated: true,
+                    delegatedTo: delegated && delegated !== owner.toBase58() ? delegated : null,
+                  }
+                : lic,
+            )
+          })
+          queryClient.invalidateQueries({ queryKey: key })
+        }
+        const confirmationTask = confirmation
+          .then(() => {
+            updateCache()
+          })
+          .catch((error) => {
+            console.error("[Activate] confirmation failed", error)
+            throw error
+          })
+        if (options?.awaitConfirmation ?? true) {
+          await confirmationTask
+        }
+        return { signature, confirmation: confirmationTask }
       } catch (e) {
         console.error("[Activate] ActivateChecker failed", {
           licenseId,
@@ -86,11 +109,11 @@ export function useDepinActions() {
         throw e
       }
     },
-    [ensure, endpoints.heliusRpc, connection, sendTransaction],
+    [ensure, endpoints.heliusRpc, connection, sendTransaction, cluster, queryClient],
   )
 
   const payoutCheckerRewards = useCallback(
-    async (licenseId: string) => {
+    async (licenseId: string, options?: { awaitConfirmation?: boolean }) => {
       const owner = ensure()
       const asset = await getAssetWithProofUmi(endpoints.heliusRpc, cluster, licenseId)
       const payout = new PayoutCheckerRewards({
@@ -105,9 +128,26 @@ export function useDepinActions() {
       if (!cfg) throw new Error("Treasury config not found")
       const ix = await payout.getInstruction(cfg)
       const web3Ix = kitInstructionToWeb3(ix)
-      const sig = await sendWeb3Instruction({ connection, payer: owner, instruction: web3Ix, walletSend: (tx) => sendTransaction(tx, connection) })
-      queryClient.invalidateQueries({ queryKey: ["checkerLicenses", cluster, owner.toBase58()] })
-      return sig
+      const { signature, confirmation } = await sendWeb3Instruction({
+        connection,
+        payer: owner,
+        instruction: web3Ix,
+        walletSend: (tx) => sendTransaction(tx, connection),
+        awaitConfirmation: options?.awaitConfirmation ?? true,
+      })
+      const key = ["checkerLicenses", cluster, owner.toBase58()]
+      const confirmationTask = confirmation
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: key })
+        })
+        .catch((error) => {
+          console.error("[Payout] confirmation failed", error)
+          throw error
+        })
+      if (options?.awaitConfirmation ?? true) {
+        await confirmationTask
+      }
+      return { signature, confirmation: confirmationTask }
     },
     [ensure, endpoints.heliusRpc, connection, sendTransaction, cluster, queryClient],
   )

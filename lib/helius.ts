@@ -1,5 +1,5 @@
 import bs58 from "bs58"
-import { some, none } from "gill"
+import { none } from "gill"
 
 async function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -71,38 +71,46 @@ export async function searchCheckerAssets(
   opts?: { limit?: number; maxPages?: number },
 ) {
   const limit = opts?.limit ?? 100
-  const maxPages = opts?.maxPages ?? 10
+  const maxPages = opts?.maxPages ?? 100
   if (!trees?.length) {
-    // No tree provided; return owner + compressed
     const items = await searchCompressedAssetsByOwner(endpoint, { ownerAddress, limit })
     return items
   }
 
   const results: any[] = []
   for (const tree of trees) {
-    let page = 1
-    for (let i = 0; i < maxPages; i++) {
+    let cursor: string | undefined
+    let pageCount = 0
+    while (pageCount < maxPages) {
+      const params: Record<string, unknown> = {
+        ownerAddress,
+        compressed: true,
+        tree,
+        limit,
+        displayOptions: { showUnverifiedCollections: true },
+      }
+      if (cursor) params.cursor = cursor
+      else params.page = 1
+
       const body = {
         jsonrpc: "2.0",
         id: "beamable",
         method: "searchAssets",
-        params: {
-          ownerAddress,
-          compressed: true,
-          tree, // filter by Bubblegum tree
-          page,
-          limit,
-          displayOptions: { showUnverifiedCollections: true },
-        },
+        params,
       }
+
       const json = await heliusFetch<any>(endpoint, body)
-      const items = json?.result?.items || json?.items || []
-      const total = Number(json?.result?.total || json?.total || 0)
+      const payload = json?.result ?? json ?? {}
+      const items = Array.isArray(payload?.items) ? payload.items : []
       results.push(...items)
-      const returned = items.length
-      if (returned < limit) break
-      if (total && page * limit >= total) break
-      page += 1
+      const nextCursor = typeof payload?.cursor === "string" ? payload.cursor : undefined
+      pageCount += 1
+
+      if (!nextCursor || items.length < limit) {
+        break
+      }
+
+      cursor = nextCursor
     }
   }
   return results

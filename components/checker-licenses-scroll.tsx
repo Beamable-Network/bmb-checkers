@@ -27,6 +27,8 @@ interface CheckerLicensesScrollProps {
   onUndelegate: (id: string) => void
   onClaim?: (id: string) => void
   pendingActions?: Record<string, CheckerLicenseAction>
+  showPendingOnly?: boolean
+  onTogglePending?: (value: boolean) => void
 }
 
 export function CheckerLicensesScroll({
@@ -36,6 +38,8 @@ export function CheckerLicensesScroll({
   onUndelegate,
   onClaim,
   pendingActions,
+  showPendingOnly = false,
+  onTogglePending,
 }: CheckerLicensesScrollProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [filterDelegated, setFilterDelegated] = useState(false)
@@ -56,10 +60,12 @@ export function CheckerLicensesScroll({
     return matchesSearch && matchesDelegated && matchesActivated
   })
 
+  const pendingSelected = showPendingOnly === true
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-4 rounded-xl border border-border/60 bg-secondary/50 p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative flex-1">
+        <div className="relative w-full sm:w-[260px]">
           <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search by name, address, or license id..."
@@ -72,7 +78,7 @@ export function CheckerLicensesScroll({
           <Filter className="h-4 w-4" />
           <span>Filter</span>
         </div>
-        <div className="flex items-center justify-end gap-2 sm:justify-start">
+        <div className="flex flex-wrap items-center justify-end gap-2 sm:justify-start">
           <Button
             variant="outline"
             size="sm"
@@ -94,6 +100,17 @@ export function CheckerLicensesScroll({
             onClick={() => setFilterActivated(!filterActivated)}
           >
             Activated
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(
+              "rounded-lg border border-border/50 bg-card/70 px-4 py-2 text-sm font-medium text-muted-foreground transition hover:border-primary/40 hover:bg-primary/10 hover:text-primary",
+              pendingSelected && "border-primary/40 bg-primary/20 text-primary shadow shadow-primary/20",
+            )}
+            onClick={() => onTogglePending?.(!pendingSelected)}
+          >
+            Pending
           </Button>
         </div>
       </div>
