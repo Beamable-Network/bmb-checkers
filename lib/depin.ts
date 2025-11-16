@@ -5,31 +5,33 @@ const CLUSTER_NAME_MAP: Record<Cluster, "devnet" | "mainnet"> = {
   mainnet: "mainnet",
 }
 
-// Thin dynamic wrapper around @beamable-network/depin to avoid hard type coupling
-export async function getCheckerMerkleTrees(cluster: Cluster): Promise<string[]> {
+/**
+ * Resolve the single checker merkle tree for the current cluster.
+ * Falls back to legacy mainnet-beta tree if required.
+ */
+export async function getCheckerMerkleTrees(cluster: Cluster): Promise<string | null> {
   try {
     const mod: any = await import("@beamable-network/depin")
-    if (typeof mod.getCheckerTree === "function") {
-      const depinCluster = CLUSTER_NAME_MAP[cluster] ?? "devnet"
-      const trees = new Set<string>()
+    if (typeof mod.getCheckerTree !== "function") {
+      return null
+    }
+    const depinCluster = CLUSTER_NAME_MAP[cluster] ?? "devnet"
+    try {
+      const primary = mod.getCheckerTree(depinCluster)
+      if (primary) return String(primary)
+    } catch (err) {
+      console.warn("[Depin] getCheckerTree failed", { cluster: depinCluster, err })
+    }
+    if (cluster === "mainnet") {
       try {
-        const primary = mod.getCheckerTree(depinCluster)
-        if (primary) trees.add(String(primary))
-      } catch (err) {
-        console.warn("[Depin] getCheckerTree failed", { cluster: depinCluster, err })
+        const legacy = mod.getCheckerTree("mainnet-beta")
+        if (legacy) return String(legacy)
+      } catch {
+        // ignore
       }
-      if (cluster === "mainnet" && !trees.size) {
-        try {
-          const legacy = mod.getCheckerTree("mainnet-beta")
-          if (legacy) trees.add(String(legacy))
-        } catch {
-          // ignore
-        }
-      }
-      return Array.from(trees)
     }
   } catch (e) {
     console.warn("Depin SDK not available to get checker tree")
   }
-  return []
+  return null
 }

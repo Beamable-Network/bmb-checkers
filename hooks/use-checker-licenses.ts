@@ -90,12 +90,15 @@ export function useCheckerLicenses(owner: PublicKey | null | undefined) {
 
   const fetchLicenses = useCallback(async () => {
     if (!owner) return [] as CheckerLicense[]
-    const trees = await getCheckerMerkleTrees(cluster)
-    const items = await searchCheckerAssets(endpoints.heliusRpc, owner.toBase58(), trees)
+    const tree = await getCheckerMerkleTrees(cluster)
+    const items = await searchCheckerAssets(endpoints.heliusRpc, owner.toBase58(), tree)
     const filtered = Array.isArray(items)
       ? items.filter((it: any) => {
-          const tree = it?.compression?.tree
-          return !trees?.length || (tree && trees.includes(tree))
+          if (!tree) return true
+          const assetTree = it?.compression?.tree
+          if (!assetTree) return false
+          const normalized = address(tree).toString()
+          return String(assetTree) === normalized
         })
       : []
     const mapped: CheckerLicense[] = filtered.map((it: any) => {

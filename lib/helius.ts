@@ -56,7 +56,7 @@ export async function searchCompressedAssetsByOwner(endpoint: string, params: Se
       ownerAddress: params.ownerAddress,
       compressed: true,
       page: params.page ?? 1,
-      limit: params.limit ?? 100,
+      limit: params.limit ?? 1000,
       displayOptions: { showUnverifiedCollections: true },
     },
   }
@@ -67,50 +67,47 @@ export async function searchCompressedAssetsByOwner(endpoint: string, params: Se
 export async function searchCheckerAssets(
   endpoint: string,
   ownerAddress: string,
-  trees: string[],
-  opts?: { limit?: number; maxPages?: number },
+  tree: string | null | undefined,
+  opts?: { limit?: number },
 ) {
-  const limit = opts?.limit ?? 100
-  const maxPages = opts?.maxPages ?? 100
-  if (!trees?.length) {
-    const items = await searchCompressedAssetsByOwner(endpoint, { ownerAddress, limit })
-    return items
+  const limit = opts?.limit ?? 1000
+  if (!tree) {
+    return searchCompressedAssetsByOwner(endpoint, { ownerAddress, limit })
   }
 
   const results: any[] = []
-  for (const tree of trees) {
-    let cursor: string | undefined
-    let pageCount = 0
-    while (pageCount < maxPages) {
-      const params: Record<string, unknown> = {
+  let page = 1
+  let shouldContinue = true
+  while (shouldContinue) {
+    const body = {
+      jsonrpc: "2.0",
+      id: "beamable",
+      method: "searchAssets",
+      params: {
         ownerAddress,
         compressed: true,
         tree,
+        page,
         limit,
         displayOptions: { showUnverifiedCollections: true },
-      }
-      if (cursor) params.cursor = cursor
-      else params.page = 1
+      },
+    }
 
-      const body = {
-        jsonrpc: "2.0",
-        id: "beamable",
-        method: "searchAssets",
-        params,
-      }
+    const json = await heliusFetch<any>(endpoint, body)
+    const payload = json?.result ?? json ?? {}
+    const items = Array.isArray(payload?.items) ? payload.items : []
+    const total = typeof payload?.total === "number" ? payload.total : items.length
+    const pageLimit = typeof payload?.limit === "number" ? payload.limit : limit
+    results.push(...items)
 
-      const json = await heliusFetch<any>(endpoint, body)
-      const payload = json?.result ?? json ?? {}
-      const items = Array.isArray(payload?.items) ? payload.items : []
-      results.push(...items)
-      const nextCursor = typeof payload?.cursor === "string" ? payload.cursor : undefined
-      pageCount += 1
+    shouldContinue =
+      total > 0 &&
+      pageLimit > 0 &&
+      total >= pageLimit &&
+      items.length >= pageLimit
 
-      if (!nextCursor || items.length < limit) {
-        break
-      }
-
-      cursor = nextCursor
+    if (shouldContinue) {
+      page += 1
     }
   }
   return results

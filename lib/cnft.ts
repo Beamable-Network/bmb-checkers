@@ -13,12 +13,20 @@ export async function getAssetWithProofUmi(
   const umi = getUmiClient(endpoint)
   const pk = publicKey(id)
   const asset = await getAssetWithProof(umi, pk, { truncateCanopy: true })
-  const trees = await getCheckerMerkleTrees(cluster)
-  if (!trees.includes(String(asset.merkleTree))) {
-    const expected = trees.map((t) => address(t).toString())
+  const tree = await getCheckerMerkleTrees(cluster)
+  if (tree) {
+    const expected = address(tree).toString()
+    if (String(asset.merkleTree) !== expected) {
+      console.warn("[CNFT] Asset tree mismatch", {
+        assetTree: String(asset.merkleTree),
+        expectedTree: expected,
+        cluster,
+      })
+    }
+  } else {
     console.warn("[CNFT] Asset tree mismatch", {
       assetTree: String(asset.merkleTree),
-      expectedTrees: expected,
+      expectedTree: null,
       cluster,
     })
   }
