@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { toast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { AlertCircle, ArrowDownToLine, RefreshCw, Hourglass, Copy } from "lucide-react"
@@ -71,6 +72,11 @@ function formatRange(startMs: number, endMs: number) {
   const start = dateFormatter.format(new Date(startMs))
   const end = dateFormatter.format(new Date(endMs))
   return `${start} → ${end}`
+}
+
+function formatAddress(value: string) {
+  if (value.length <= 8) return value
+  return `${value.slice(0, 8)}…${value.slice(-6)}`
 }
 
 export function VestingRewards({
@@ -150,10 +156,10 @@ export function VestingRewards({
   }, [selectedPositions, selectedTotals.penalty, selectedTotals.totalLocked])
   const needsPenaltyAck = (reward: LockedRewardPosition) => reward.penaltyPct > 0.000001
 
-  const handleCopy = (address: string) => {
-    navigator.clipboard.writeText(address).then(
-      () => toast({ title: "Copied", description: "PDA address copied to clipboard." }),
-      () => toast({ title: "Copy failed", description: "Unable to copy address.", variant: "destructive" }),
+  const handleCopy = (value: string, label: string) => {
+    navigator.clipboard.writeText(value).then(
+      () => toast({ title: "Copied", description: `${label} copied to clipboard.` }),
+      () => toast({ title: "Copy failed", description: `Unable to copy ${label.toLowerCase()}.`, variant: "destructive" }),
     )
   }
 
@@ -290,12 +296,31 @@ export function VestingRewards({
                       <p className="mt-1 text-xs text-muted-foreground">{formatRange(position.lockTimestampMs, position.unlockTimestampMs)}</p>
                     </div>
                     <div className="flex items-start gap-2">
-                      <Badge
-                        className="border-transparent text-xs font-semibold text-primary-foreground shadow-sm"
-                        style={{ backgroundColor: heatColor }}
-                      >
-                        {penaltyLabel}
-                      </Badge>
+                      {!position.isCheckerReward ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Badge className="cursor-help border-amber-300 bg-amber-100 text-amber-700 shadow-sm dark:border-amber-400/60 dark:bg-amber-400/10 dark:text-amber-200">
+                              Non-Checker
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" align="end">
+                            <p>BMB granted by an external party, rather than the Checker Rewards program.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : null}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            className="cursor-help border-transparent text-xs font-semibold text-primary-foreground shadow-sm"
+                            style={{ backgroundColor: heatColor }}
+                          >
+                            {penaltyLabel}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" align="end">
+                          <p>The portion lost if you withdraw before the unlock period completes.</p>
+                        </TooltipContent>
+                      </Tooltip>
                       <Checkbox
                         checked={!!selectedIds[position.address]}
                         onCheckedChange={(checked) => toggleSelection(position.address, checked === true)}
@@ -341,24 +366,42 @@ export function VestingRewards({
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-3 pt-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs text-muted-foreground">
-                        PDA:{" "}
-                        <span className="font-mono text-[11px] text-primary/90">
-                          {position.address.slice(0, 8)}…{position.address.slice(-6)}
-                        </span>
-                      </p>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7 rounded-full border border-border/60 bg-card/70 text-muted-foreground hover:text-primary"
-                        onClick={() => handleCopy(position.address)}
-                        title="Copy PDA address"
-                      >
-                        <Copy className="h-3.5 w-3.5" />
-                      </Button>
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                    <div className="flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:gap-4">
+                      <div className="flex items-center gap-2">
+                        <p>
+                          PDA:{" "}
+                          <span className="font-mono text-[11px] text-primary/90">{formatAddress(position.address)}</span>
+                        </p>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 rounded-full border border-border/60 bg-card/70 text-muted-foreground hover:text-primary"
+                          onClick={() => handleCopy(position.address, "PDA address")}
+                          title="Copy PDA address"
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      {!position.isCheckerReward ? (
+                        <div className="flex items-center gap-2">
+                          <p>
+                            Sender:{" "}
+                            <span className="font-mono text-[11px] text-primary/90">{formatAddress(position.sender)}</span>
+                          </p>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 rounded-full border border-border/60 bg-card/70 text-muted-foreground hover:text-primary"
+                            onClick={() => handleCopy(position.sender, "Sender address")}
+                            title="Copy sender address"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
                     <Button
                       type="button"

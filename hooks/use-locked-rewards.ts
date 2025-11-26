@@ -5,6 +5,7 @@ import { PublicKey } from "@solana/web3.js"
 import { useConnection } from "@solana/wallet-adapter-react"
 import {
   FlexlockTokensAccount,
+  CheckerRewardsVault,
   baseUnitsToBmb,
   getCurrentPeriod,
   periodToTimestamp,
@@ -21,6 +22,7 @@ type RawLockedReward = {
   sender: string
   receiver: string
   rentReceiver: string
+  isCheckerReward: boolean
 }
 
 export type LockedRewardPosition = RawLockedReward & {
@@ -47,6 +49,14 @@ export function useLockedRewards(owner: PublicKey | null | undefined) {
 
   const fetchLockedRewards = useCallback(async () => {
     if (!owner || !ownerKey) return [] as RawLockedReward[]
+
+    let checkerRewardsVault: string | null = null
+    try {
+      const [checkerRewardsVaultPda] = await CheckerRewardsVault.findPDA()
+      checkerRewardsVault = String(checkerRewardsVaultPda)
+    } catch (err) {
+      console.warn("[LockedRewards] Unable to resolve CheckerRewardsVault PDA", err)
+    }
 
     const list = await FlexlockTokensAccount.getFlexlockTokensByReceiver(
       async (programAddress, filters) => {
@@ -86,6 +96,7 @@ export function useLockedRewards(owner: PublicKey | null | undefined) {
       sender: String(entry.data.sender),
       receiver: String(entry.data.receiver),
       rentReceiver: String(entry.data.rentReceiver),
+      isCheckerReward: checkerRewardsVault ? String(entry.data.sender) === checkerRewardsVault : false,
     }))
   }, [connection, owner, ownerKey])
 
