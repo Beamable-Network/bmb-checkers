@@ -9,7 +9,7 @@
     "start": "next start"
   },
   "dependencies": {
-    "@beamable-network/depin": "0.3.0",
+    "@beamable-network/depin": "0.3.1",
     "@hookform/resolvers": "^3.10.0",
     "@metaplex-foundation/digital-asset-standard-api": "^2.0.0",
     "@metaplex-foundation/mpl-bubblegum": "^5.0.2",

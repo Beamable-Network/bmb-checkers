@@ -14,6 +14,8 @@ import {
   FlexUnlock,
   BMB_MINT,
   getCurrentPeriod,
+  FlexLock,
+  bmbToBaseUnits,
 } from "@beamable-network/depin"
 import { address } from "gill"
 import {
@@ -254,5 +256,78 @@ export function useDepinActions() {
     return connection.getLatestBlockhash()
   }, [connection])
 
-  return { activateChecker, payoutCheckerRewards, unlockLockedTokens, refreshLatestBlockhash }
+  const sendLockedTokens = useCallback(
+    async ({ receiver, amount, lockDurationDays }: { receiver: string; amount: number; lockDurationDays: number }) => {
+      const owner = ensure()
+      if (!receiver) throw new Error("Receiver address is required")
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw new Error("Amount must be greater than zero")
+      }
+      if (!Number.isInteger(lockDurationDays) || lockDurationDays < 1) {
+        throw new Error("Lock duration must be a whole number of days (minimum 1)")
+      }
+
+      let receiverAddress
+      try {
+        receiverAddress = address(receiver)
+      } catch {
+        throw new Error("Invalid receiver address")
+      }
+
+      const ownerBase58 = owner.toBase58()
+      const ownerAddress = address(ownerBase58)
+
+      const [senderTokenAccount] = await findAssociatedTokenPda({
+        owner: ownerAddress,
+        mint: BMB_MINT,
+        tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      })
+
+      const instructions: TransactionInstruction[] = []
+      const senderAtaInfo = await connection.getAccountInfo(new PublicKey(String(senderTokenAccount)))
+      if (!senderAtaInfo) {
+        instructions.push(
+          kitInstructionToWeb3(
+            await getCreateAssociatedTokenIdempotentInstruction({
+              payer: ownerAddress,
+              ata: senderTokenAccount,
+              owner: ownerAddress,
+              mint: BMB_MINT,
+            }),
+          ),
+        )
+      }
+
+      const flexLock = new FlexLock({
+        sender: ownerAddress,
+        receiver: receiverAddress,
+        amount: bmbToBaseUnits(amount),
+        lock_duration_days: lockDurationDays,
+        sender_bmb_token_account: senderTokenAccount,
+        current_period: getCurrentPeriod(),
+      })
+
+      const lockInstruction = await flexLock.getInstruction()
+      instructions.push(kitInstructionToWeb3(lockInstruction))
+
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash()
+      const message = new TransactionMessage({
+        payerKey: owner,
+        recentBlockhash: blockhash,
+        instructions,
+      }).compileToV0Message()
+      const tx = new VersionedTransaction(message)
+      const signature = await sendTransaction(tx, connection)
+      try {
+        await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed")
+      } catch (err) {
+        console.warn("[FlexLock] confirmation warning", err)
+      }
+      queryClient.invalidateQueries({ queryKey: ["lockedRewards", cluster, ownerBase58] })
+      return signature
+    },
+    [ensure, connection, sendTransaction, queryClient, cluster],
+  )
+
+  return { activateChecker, payoutCheckerRewards, unlockLockedTokens, sendLockedTokens, refreshLatestBlockhash }
 }

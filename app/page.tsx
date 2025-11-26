@@ -182,7 +182,7 @@ export default function CheckerConsole() {
     error: lockedRewardsError,
     refetch: refetchLockedRewards,
   } = useLockedRewards(publicKey || null)
-  const { activateChecker, payoutCheckerRewards, unlockLockedTokens, refreshLatestBlockhash } = useDepinActions()
+  const { activateChecker, payoutCheckerRewards, unlockLockedTokens, sendLockedTokens, refreshLatestBlockhash } = useDepinActions()
   const [claimingRewards, setClaimingRewards] = useState(false)
   const [claimProgress, setClaimProgress] = useState<ClaimProgressState | null>(null)
   const [activatingLicenses, setActivatingLicenses] = useState(false)
@@ -851,6 +851,37 @@ export default function CheckerConsole() {
     }
   }
 
+  const handleSendLockedBmb = async ({
+    receiver,
+    amount,
+    lockDurationDays,
+  }: {
+    receiver: string
+    amount: number
+    lockDurationDays: number
+  }) => {
+    if (!connected) throw new Error("Connect your wallet to send locked BMB.")
+    let toastHandle: ReturnType<typeof toast> | undefined
+    const receiverPreview = `${receiver.slice(0, 4)}…${receiver.slice(-4)}`
+    try {
+      toastHandle = toast({
+        title: "Sending locked BMB…",
+        description: `${amount.toLocaleString(undefined, { maximumFractionDigits: 4 })} $BMB → ${receiverPreview}`,
+      })
+      const signature = await sendLockedTokens({ receiver, amount, lockDurationDays })
+      toastHandle?.update({ title: "Locked BMB sent", description: signature })
+      await refetchLockedRewards()
+    } catch (e: any) {
+      const description = e?.message || "Unable to send locked BMB."
+      if (toastHandle) {
+        toastHandle.update({ title: "Send failed", description, variant: "destructive" })
+      } else {
+        toast({ title: "Send failed", description, variant: "destructive" })
+      }
+      throw e
+    }
+  }
+
   return (
     <div className="relative min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-50 border-b border-primary/40 bg-secondary/80 backdrop-blur-md">
@@ -1044,9 +1075,7 @@ export default function CheckerConsole() {
               withdrawingSelection={withdrawingLockedSelection}
               onWithdraw={handleWithdrawLockedReward}
               onWithdrawSelection={handleWithdrawSelection}
-              onRefresh={() => {
-                void refetchLockedRewards()
-              }}
+              onSendLockedBmb={handleSendLockedBmb}
             />
 
             {NETWORK_TOGGLE_ENABLED ? (

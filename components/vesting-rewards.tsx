@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { LockedRewardPosition } from "@/hooks/use-locked-rewards"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -9,9 +9,13 @@ import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { toast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
-import { AlertCircle, ArrowDownToLine, RefreshCw, Hourglass, Copy } from "lucide-react"
+import { AlertCircle, ArrowDownToLine, ArrowUpRight, Hourglass, Copy } from "lucide-react"
+import { getCurrentPeriod, periodToTimestamp } from "@beamable-network/depin"
+import { isAddress } from "gill"
 
 type VestingRewardsProps = {
   positions: LockedRewardPosition[]
@@ -22,7 +26,7 @@ type VestingRewardsProps = {
   withdrawingSelection: boolean
   onWithdraw: (position: LockedRewardPosition) => Promise<void> | void
   onWithdrawSelection: (selection: LockedRewardPosition[]) => Promise<void> | void
-  onRefresh: () => void
+  onSendLockedBmb: (input: { receiver: string; amount: number; lockDurationDays: number }) => Promise<void> | void
 }
 
 const percentFormatter = new Intl.NumberFormat(undefined, {
@@ -88,7 +92,7 @@ export function VestingRewards({
   withdrawingSelection,
   onWithdraw,
   onWithdrawSelection,
-  onRefresh,
+  onSendLockedBmb,
 }: VestingRewardsProps) {
   const [showWithdrawSelected, setShowWithdrawSelected] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({})
@@ -96,6 +100,43 @@ export function VestingRewards({
   const [singleConfirm, setSingleConfirm] = useState<LockedRewardPosition | null>(null)
   const [singleConfirmAck, setSingleConfirmAck] = useState(false)
   const [selectionAck, setSelectionAck] = useState(false)
+  const [sendDialogOpen, setSendDialogOpen] = useState(false)
+  const [sendStep, setSendStep] = useState<1 | 2>(1)
+  const [sendReceiver, setSendReceiver] = useState("")
+  const [sendAmount, setSendAmount] = useState("")
+  const [sendDuration, setSendDuration] = useState("")
+  const [sendError, setSendError] = useState<string | null>(null)
+  const [sendingLocked, setSendingLocked] = useState(false)
+  const [sendAcknowledged, setSendAcknowledged] = useState(false)
+
+  const resetSendForm = useCallback(() => {
+    setSendStep(1)
+    setSendReceiver("")
+    setSendAmount("")
+    setSendDuration("")
+    setSendError(null)
+    setSendingLocked(false)
+    setSendAcknowledged(false)
+  }, [])
+
+  const currentPeriod = useMemo(() => getCurrentPeriod(), [])
+  const trimmedSendReceiver = useMemo(() => sendReceiver.trim(), [sendReceiver])
+  const sendAmountValue = useMemo(() => Number.parseFloat(sendAmount), [sendAmount])
+  const sendDurationValue = useMemo(() => Number.parseInt(sendDuration, 10), [sendDuration])
+  const isReceiverValid = useMemo(() => trimmedSendReceiver.length > 0 && isAddress(trimmedSendReceiver), [trimmedSendReceiver])
+  const isAmountValid = useMemo(
+    () => Number.isFinite(sendAmountValue) && sendAmountValue > 0 && sendAmountValue <= Number.MAX_SAFE_INTEGER,
+    [sendAmountValue],
+  )
+  const isDurationValid = useMemo(
+    () => Number.isInteger(sendDurationValue) && sendDurationValue >= 1 && sendDurationValue <= 1825,
+    [sendDurationValue],
+  )
+  const canAdvanceSend = isReceiverValid && isAmountValid && isDurationValid
+  const sendUnlockPeriodPreview = isDurationValid ? currentPeriod + sendDurationValue : currentPeriod
+  const receiverError = trimmedSendReceiver.length > 0 && !isReceiverValid ? "Enter a valid Solana wallet address." : null
+  const amountError = sendAmount.trim().length > 0 && !isAmountValid ? "Enter a valid BMB amount greater than zero." : null
+  const durationError = sendDuration.trim().length > 0 && !isDurationValid ? "Lock duration must be a whole number of days (minimum 1)." : null
 
   useEffect(() => {
     setSelectedIds((prev) => {
@@ -184,6 +225,36 @@ export function VestingRewards({
     }
   }
 
+  const handleSendConfirm = useCallback(async () => {
+    if (!canAdvanceSend || sendingLocked) return
+    setSendingLocked(true)
+    setSendError(null)
+    try {
+      await Promise.resolve(
+        onSendLockedBmb({
+          receiver: trimmedSendReceiver,
+          amount: sendAmountValue,
+          lockDurationDays: sendDurationValue,
+        }),
+      )
+      resetSendForm()
+      setSendDialogOpen(false)
+    } catch (err: any) {
+      const message = err?.message || "Failed to send locked BMB."
+      setSendError(message)
+    } finally {
+      setSendingLocked(false)
+    }
+  }, [
+    canAdvanceSend,
+    sendingLocked,
+    onSendLockedBmb,
+    trimmedSendReceiver,
+    sendAmountValue,
+    sendDurationValue,
+    resetSendForm,
+  ])
+
   const toggleSelection = (address: string, checked: boolean) => {
     setSelectedIds((prev) => {
       const next = { ...prev }
@@ -193,6 +264,15 @@ export function VestingRewards({
     })
   }
 
+  const sendUnlockTimestampMs = useMemo(() => {
+    if (!isDurationValid) return null
+    try {
+      const seconds = periodToTimestamp(sendUnlockPeriodPreview)
+      return Number(seconds) * 1000
+    } catch {
+      return null
+    }
+  }, [isDurationValid, sendUnlockPeriodPreview])
   const renderEmptyState = () => (
     <div className="flex h-40 flex-col items-center justify-center rounded-2xl border border-border/60 bg-secondary/40 text-sm text-muted-foreground">
       <Hourglass className="mb-2 h-5 w-5 text-primary/70" />
@@ -213,16 +293,6 @@ export function VestingRewards({
         <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
-            variant="outline"
-            onClick={onRefresh}
-            disabled={loading || refetching}
-            className="h-9 rounded-lg border border-border/60 bg-card/70 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
-          >
-            {refetching ? <Spinner className="mr-2 h-3.5 w-3.5" /> : <RefreshCw className="mr-2 h-3.5 w-3.5" />}
-            Refresh
-          </Button>
-          <Button
-            type="button"
             variant={showVestedOnly ? "default" : "outline"}
             onClick={() => setShowVestedOnly((prev) => !prev)}
             className={cn(
@@ -231,6 +301,19 @@ export function VestingRewards({
             )}
           >
             Fully Vested
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              resetSendForm()
+              setSendDialogOpen(true)
+            }}
+            disabled={loading || refetching}
+            className="h-9 rounded-lg border border-border/60 bg-card/70 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+          >
+            <ArrowUpRight className="mr-2 h-3.5 w-3.5" />
+            Send Locked BMB
           </Button>
           <Button
             type="button"
@@ -433,6 +516,204 @@ export function VestingRewards({
           })
         )}
       </div>
+
+      <Dialog
+        open={sendDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            resetSendForm()
+          }
+          setSendDialogOpen(open)
+        }}
+      >
+        <DialogContent className="sm:max-w-[460px] rounded-2xl border border-border/60 bg-card/90 shadow-2xl shadow-secondary/35">
+          {sendStep === 1 ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-xl font-semibold tracking-tight">Send Locked BMB</DialogTitle>
+                <DialogDescription className="text-sm text-muted-foreground">
+                  Lock BMB for another wallet. Provide the recipient, amount, and lock duration.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="send-receiver">Recipient address</Label>
+                  <Input
+                    id="send-receiver"
+                    value={sendReceiver}
+                    onChange={(event) => setSendReceiver(event.target.value)}
+                    placeholder="Receiver wallet address"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Locked BMB will vest to this address. Enter a Solana wallet (base58).
+                  </p>
+                  {receiverError ? <p className="text-xs font-medium text-destructive">{receiverError}</p> : null}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="send-amount">Amount (BMB)</Label>
+                  <Input
+                    id="send-amount"
+                    type="number"
+                    min="0"
+                    step="0.000000001"
+                    value={sendAmount}
+                    onChange={(event) => setSendAmount(event.target.value)}
+                    placeholder="e.g. 250"
+                    inputMode="decimal"
+                  />
+                  <p className="text-xs text-muted-foreground">Specify the total BMB to lock.</p>
+                  {amountError ? <p className="text-xs font-medium text-destructive">{amountError}</p> : null}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="send-duration">Lock duration (days)</Label>
+                  <Input
+                    id="send-duration"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={sendDuration}
+                    onChange={(event) => setSendDuration(event.target.value)}
+                    placeholder="e.g. 90"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Locked BMB can be withdrawn after this many full days have elapsed (minimum 1 day).
+                  </p>
+                  {durationError ? <p className="text-xs font-medium text-destructive">{durationError}</p> : null}
+                </div>
+                {sendError ? (
+                  <p className="text-xs font-medium text-destructive">{sendError}</p>
+                ) : null}
+              </div>
+              <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:space-x-0">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="sm:w-auto"
+                  onClick={() => {
+                    resetSendForm()
+                    setSendDialogOpen(false)
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setSendError(null)
+                    setSendStep(2)
+                  }}
+                  disabled={!canAdvanceSend}
+                  className="sm:w-auto"
+                >
+                  Next
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-xl font-semibold tracking-tight">Confirm locked transfer</DialogTitle>
+                <DialogDescription className="text-sm text-muted-foreground">
+                  Review the details before sending. This lock vests daily and can be withdrawn by the recipient.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-3 rounded-xl border border-border/60 bg-secondary/40 p-4 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Recipient</span>
+                    <span className="font-mono text-xs text-primary">{formatAddress(trimmedSendReceiver)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Amount locked</span>
+                    <span className="font-semibold text-primary">
+                      {isAmountValid ? `${formatAmount(sendAmountValue)} $BMB` : "-"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Lock duration</span>
+                    <span className="font-semibold text-primary">
+                      {isDurationValid ? `${sendDurationValue.toLocaleString()} day(s)` : "-"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Current period</span>
+                    <span className="font-mono text-xs text-primary">{currentPeriod}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Unlock period</span>
+                    <span className="font-mono text-xs text-primary">{sendUnlockPeriodPreview}</span>
+                  </div>
+                  {sendUnlockTimestampMs ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Unlock date (approx)</span>
+                      <span className="font-semibold text-primary">
+                        {dateFormatter.format(new Date(sendUnlockTimestampMs))}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+                {sendError ? (
+                  <p className="text-xs font-medium text-destructive">{sendError}</p>
+                ) : null}
+                <div className="space-y-3 rounded-xl border border-border/60 bg-secondary/40 p-4 text-xs text-muted-foreground">
+                  <p className="font-semibold text-foreground/80">Before you send</p>
+                  <ul className="space-y-2 pl-3 text-muted-foreground">
+                    <li className="list-disc">
+                      The recipient can withdraw the vested portion after the unlock period completes.
+                    </li>
+                    <li className="list-disc">
+                      Unvested BMB and the SOL rent deposit return to the sender when the recipient withdraws the BMB.
+                    </li>
+                    <li className="list-disc">BMB vests linearly—each day releases a proportional share.</li>
+                    <li className="list-disc">Once sent, the sender cannot reclaim the locked BMB.</li>
+                  </ul>
+                </div>
+                <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-secondary/40 p-3">
+                  <Checkbox
+                    id="send-ack"
+                    checked={sendAcknowledged}
+                    onCheckedChange={(checked) => setSendAcknowledged(checked === true)}
+                    className="mt-1"
+                  />
+                  <Label
+                    htmlFor="send-ack"
+                    className="cursor-pointer text-xs leading-relaxed text-muted-foreground"
+                  >
+                    I understand these conditions and accept that the recipient takes custody of the vested BMB.
+                  </Label>
+                </div>
+              </div>
+              <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:space-x-0">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="sm:w-auto"
+                  disabled={sendingLocked}
+                  onClick={() => {
+                    setSendStep(1)
+                    setSendError(null)
+                  }}
+                >
+                  Back
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleSendConfirm}
+                  disabled={!canAdvanceSend || sendingLocked || !sendAcknowledged}
+                  className="sm:w-auto"
+                >
+                  {sendingLocked ? <Spinner className="mr-2 h-3.5 w-3.5" /> : <ArrowUpRight className="mr-2 h-3.5 w-3.5" />}
+                  {sendingLocked ? "Sending…" : "Send Locked BMB"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={!!singleConfirm}
