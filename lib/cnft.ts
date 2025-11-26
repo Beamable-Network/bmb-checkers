@@ -1,7 +1,7 @@
 import { publicKey } from "@metaplex-foundation/umi"
 import { getAssetWithProof } from "@metaplex-foundation/mpl-bubblegum"
 import type { Cluster } from "@/hooks/use-network"
-import { getCheckerMerkleTrees } from "@/lib/depin"
+import { getCheckerMerkleTree } from "@/lib/depin"
 import { getUmiClient } from "@/lib/umi-client"
 import { address } from "gill"
 
@@ -13,7 +13,7 @@ export async function getAssetWithProofUmi(
   const umi = getUmiClient(endpoint)
   const pk = publicKey(id)
   const asset = await getAssetWithProof(umi, pk, { truncateCanopy: true })
-  const tree = await getCheckerMerkleTrees(cluster)
+  const tree = await getCheckerMerkleTree(cluster)
   if (tree) {
     const expected = address(tree).toString()
     if (String(asset.merkleTree) !== expected) {

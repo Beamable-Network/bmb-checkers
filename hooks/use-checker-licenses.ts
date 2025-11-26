@@ -3,7 +3,7 @@
 import { useCallback } from "react"
 import { PublicKey } from "@solana/web3.js"
 import { searchCheckerAssets } from "@/lib/helius"
-import { getCheckerMerkleTrees } from "@/lib/depin"
+import { getCheckerMerkleTree } from "@/lib/depin"
 import { useNetwork } from "@/hooks/use-network"
 import { useConnection } from "@solana/wallet-adapter-react"
 import { CheckerMetadataAccount, GlobalRewardsAccount, baseUnitsToBmb } from "@beamable-network/depin"
@@ -90,7 +90,7 @@ export function useCheckerLicenses(owner: PublicKey | null | undefined) {
 
   const fetchLicenses = useCallback(async () => {
     if (!owner) return [] as CheckerLicense[]
-    const tree = await getCheckerMerkleTrees(cluster)
+    const tree = await getCheckerMerkleTree(cluster)
     const items = await searchCheckerAssets(endpoints.heliusRpc, owner.toBase58(), tree)
     const filtered = Array.isArray(items)
       ? items.filter((it: any) => {

@@ -7,7 +7,14 @@ import { PublicKey, TransactionInstruction, TransactionMessage, VersionedTransac
 import { useNetwork } from "@/hooks/use-network"
 import { getAssetWithProofUmi } from "@/lib/cnft"
 import { kitInstructionToWeb3, sendWeb3Instruction } from "@/lib/kit-bridge"
-import { ActivateChecker, PayoutCheckerRewards, TreasuryConfigAccount, Unlock, BMB_MINT } from "@beamable-network/depin"
+import {
+  ActivateChecker,
+  PayoutCheckerRewards,
+  CheckerRewardsVault,
+  FlexUnlock,
+  BMB_MINT,
+  getCurrentPeriod,
+} from "@beamable-network/depin"
 import { address } from "gill"
 import {
   findAssociatedTokenPda,
@@ -16,6 +23,7 @@ import {
 } from "@solana-program/token"
 import { useQueryClient } from "@tanstack/react-query"
 import type { CheckerLicense } from "@/hooks/use-checker-licenses"
+import type { LockedRewardPosition } from "@/hooks/use-locked-rewards"
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvQJpmdMZ4Zp4xi8cYgR2o63HgNbUsVTy5cuc")
 
 export function useDepinActions() {
@@ -120,12 +128,12 @@ export function useDepinActions() {
         signer: address(owner.toBase58()),
         checker_license: asset as any,
       })
-      // Fetch TreasuryConfig via web3 connection
-      const cfg = await TreasuryConfigAccount.readFromState(async (addr: any) => {
+      // Fetch CheckerRewardsVault config via web3 connection
+      const cfg = await CheckerRewardsVault.readFromState(async (addr: any) => {
         const info = await connection.getAccountInfo(new (await import("@solana/web3.js")).PublicKey(String(addr)))
         return info?.data ? new Uint8Array(info.data) : null
       })
-      if (!cfg) throw new Error("Treasury config not found")
+      if (!cfg) throw new Error("Checker rewards vault not found")
       const ix = await payout.getInstruction(cfg)
       const web3Ix = kitInstructionToWeb3(ix)
       const { signature, confirmation } = await sendWeb3Instruction({
@@ -153,36 +161,71 @@ export function useDepinActions() {
   )
 
   const unlockLockedTokens = useCallback(
-    async ({ lockPeriod, unlockPeriod }: { lockPeriod: number; unlockPeriod: number }) => {
+    async (reward: LockedRewardPosition) => {
       const owner = ensure()
       const ownerBase58 = owner.toBase58()
       const ownerAddress = address(ownerBase58)
-      const [ataAddress] = await findAssociatedTokenPda({
-        owner: ownerAddress,
+
+      if (reward.receiver !== ownerBase58) {
+        throw new Error("Locked reward receiver does not match connected wallet")
+      }
+
+      const receiverAddress = address(reward.receiver)
+      const senderAddress = address(reward.sender)
+      const rentReceiverAddress = address(reward.rentReceiver)
+
+      const [receiverTokenAccount] = await findAssociatedTokenPda({
+        owner: receiverAddress,
         mint: BMB_MINT,
         tokenProgram: TOKEN_PROGRAM_ADDRESS,
       })
-      const ataPubkey = new PublicKey(String(ataAddress))
+
+      const [senderTokenAccount] = await findAssociatedTokenPda({
+        owner: senderAddress,
+        mint: BMB_MINT,
+        tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      })
+
       const instructions: TransactionInstruction[] = []
-      const ataInfo = await connection.getAccountInfo(ataPubkey)
-      if (!ataInfo) {
+
+      const receiverAtaInfo = await connection.getAccountInfo(new PublicKey(String(receiverTokenAccount)))
+      if (!receiverAtaInfo) {
         instructions.push(
           kitInstructionToWeb3(
             await getCreateAssociatedTokenIdempotentInstruction({
               payer: ownerAddress,
-              ata: ataAddress,
-              owner: ownerAddress,
+              ata: receiverTokenAccount,
+              owner: receiverAddress,
               mint: BMB_MINT,
             }),
           ),
         )
       }
 
-      const unlock = new Unlock({
-        owner: ownerAddress,
-        lock_period: lockPeriod,
-        owner_bmb_token_account: ataAddress,
-        unlock_period_for_address: unlockPeriod,
+      const currentPeriod = getCurrentPeriod()
+      const senderAtaInfo = await connection.getAccountInfo(new PublicKey(String(senderTokenAccount)))
+      const needsSenderAccount = reward.unlockPeriod > currentPeriod && !senderAtaInfo
+      if (needsSenderAccount) {
+        instructions.push(
+          kitInstructionToWeb3(
+            await getCreateAssociatedTokenIdempotentInstruction({
+              payer: ownerAddress,
+              ata: senderTokenAccount,
+              owner: senderAddress,
+              mint: BMB_MINT,
+            }),
+          ),
+        )
+      }
+
+      const unlock = new FlexUnlock({
+        receiver: receiverAddress,
+        sender: senderAddress,
+        receiver_bmb_token_account: receiverTokenAccount,
+        sender_bmb_token_account: senderTokenAccount,
+        lock_period: reward.lockPeriod,
+        rent_receiver: rentReceiverAddress,
+        unlock_period: reward.unlockPeriod,
       })
 
       const kitInstruction = await unlock.getInstruction()
@@ -195,14 +238,14 @@ export function useDepinActions() {
         instructions,
       }).compileToV0Message()
       const tx = new VersionedTransaction(message)
-      const sig = await sendTransaction(tx, connection)
+      const signature = await sendTransaction(tx, connection)
       try {
-        await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed")
+        await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed")
       } catch (err) {
         console.warn("[Unlock] confirmation warning", err)
       }
       queryClient.invalidateQueries({ queryKey: ["lockedRewards", cluster, ownerBase58] })
-      return sig
+      return signature
     },
     [ensure, connection, sendTransaction, queryClient, cluster],
   )

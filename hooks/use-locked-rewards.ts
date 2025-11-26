@@ -4,7 +4,7 @@ import { useCallback } from "react"
 import { PublicKey } from "@solana/web3.js"
 import { useConnection } from "@solana/wallet-adapter-react"
 import {
-  LockedTokensAccount,
+  FlexlockTokensAccount,
   baseUnitsToBmb,
   getCurrentPeriod,
   periodToTimestamp,
@@ -18,6 +18,9 @@ type RawLockedReward = {
   lockPeriod: number
   unlockPeriod: number
   totalLockedRaw: bigint
+  sender: string
+  receiver: string
+  rentReceiver: string
 }
 
 export type LockedRewardPosition = RawLockedReward & {
@@ -45,7 +48,7 @@ export function useLockedRewards(owner: PublicKey | null | undefined) {
   const fetchLockedRewards = useCallback(async () => {
     if (!owner || !ownerKey) return [] as RawLockedReward[]
 
-    const list = await LockedTokensAccount.getLockedTokens(
+    const list = await FlexlockTokensAccount.getFlexlockTokensByReceiver(
       async (programAddress, filters) => {
         const pk = new PublicKey(String(programAddress))
         const mappedFilters = filters.map((filter) => {
@@ -79,7 +82,10 @@ export function useLockedRewards(owner: PublicKey | null | undefined) {
       address: String(entry.address),
       lockPeriod: entry.data.lockPeriod,
       unlockPeriod: entry.data.unlockPeriod,
-      totalLockedRaw: entry.data.totalLocked,
+      totalLockedRaw: entry.data.amount,
+      sender: String(entry.data.sender),
+      receiver: String(entry.data.receiver),
+      rentReceiver: String(entry.data.rentReceiver),
     }))
   }, [connection, owner, ownerKey])
 
@@ -99,12 +105,12 @@ export function useLockedRewards(owner: PublicKey | null | undefined) {
       const unlockTimestamp = Number(periodToTimestamp(entry.unlockPeriod)) * 1000
       const periodDuration = Math.max(entry.unlockPeriod - entry.lockPeriod, 0)
       const elapsed = Math.max(currentPeriod - entry.lockPeriod, 0)
-      const clampedElapsed = Math.min(elapsed, periodDuration)
-      const progress = periodDuration > 0 ? clampedElapsed / periodDuration : elapsed > 0 ? 1 : 0
+      const clampedElapsed = periodDuration > 0 ? Math.min(elapsed, periodDuration) : elapsed
+      const progress = periodDuration > 0 ? Math.min(clampedElapsed / periodDuration, 1) : 1
       const totalLocked = baseUnitsToBmb(entry.totalLockedRaw)
-      const maturedAmount = totalLocked * progress
+      const maturedAmount = Math.min(totalLocked, totalLocked * progress)
       const penaltyAmount = Math.max(totalLocked - maturedAmount, 0)
-      const daysRemaining = Math.max(periodDuration - clampedElapsed, 0)
+      const daysRemaining = Math.max(entry.unlockPeriod - currentPeriod, 0)
 
       return {
         ...entry,
@@ -114,7 +120,7 @@ export function useLockedRewards(owner: PublicKey | null | undefined) {
         maturedAmount,
         penaltyAmount,
         progress,
-        penaltyPct: Math.max(0, 1 - progress),
+        penaltyPct: totalLocked > 0 ? Math.max(0, Math.min(1, penaltyAmount / totalLocked)) : 0,
         daysRemaining,
         periodDurationDays: periodDuration,
       }

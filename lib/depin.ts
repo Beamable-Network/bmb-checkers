@@ -9,7 +9,7 @@ const CLUSTER_NAME_MAP: Record<Cluster, "devnet" | "mainnet"> = {
  * Resolve the single checker merkle tree for the current cluster.
  * Falls back to legacy mainnet-beta tree if required.
  */
-export async function getCheckerMerkleTrees(cluster: Cluster): Promise<string | null> {
+export async function getCheckerMerkleTree(cluster: Cluster): Promise<string | null> {
   try {
     const mod: any = await import("@beamable-network/depin")
     if (typeof mod.getCheckerTree !== "function") {

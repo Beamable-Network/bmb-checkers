@@ -793,7 +793,7 @@ export default function CheckerConsole() {
     try {
       setLockedWithdrawState((prev) => ({ ...prev, [id]: true }))
       toastHandle = toast({ title: "Withdrawing…", description: `Lock period ${reward.lockPeriod}` })
-      const sig = await unlockLockedTokens({ lockPeriod: reward.lockPeriod, unlockPeriod: reward.unlockPeriod })
+      const sig = await unlockLockedTokens(reward)
       toastHandle?.update({ title: "Withdrawn", description: sig })
     } catch (e: any) {
       toast({ title: "Withdraw failed", description: e?.message || String(e) })
@@ -823,7 +823,7 @@ export default function CheckerConsole() {
       for (const reward of selection) {
         const id = reward.address
         try {
-          await unlockLockedTokens({ lockPeriod: reward.lockPeriod, unlockPeriod: reward.unlockPeriod })
+          await unlockLockedTokens(reward)
         } catch (error) {
           throw error
         } finally {
